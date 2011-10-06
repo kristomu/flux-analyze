@@ -8,6 +8,15 @@ There are two source subdirectories: csrc/, the C++ version, and python/, the
 Python version. I'm currently working on the C++ version; the Python version is
 older.
 
+## Request for images
+
+I may be picking up this project again, time permitting, as I've thought of new
+ideas that could handle errors more robustly. If you have got any marginal or
+failing floppy images that you'd be willing to share (without PII or other
+private data), let me know by issue/PR or by email to my commit Author mail
+address. Such images could help me tune the algorithms so that they'll have
+better success at recovering data.
+
 ## Installation and usage
 
 To compile the C++ version, use cmake. A typical invocation would be
