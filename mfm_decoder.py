@@ -64,7 +64,7 @@ def get_assignments(pulse_deltas, bands=3, correct_warping=True):
 # The encoding table is, where R is a reversal and N is none:
 #	1	is represented by	NR
 #	0	is represented by	RN	if we last observed a 0 bit
-#	0	is represented by	NN	if we last observed a 1  bit.
+#	0	is represented by	NN	if we last observed a 1 bit.
 # (https://info-coach.fr/atari/hardware/FD-Hard.php#Modified_Frequency_Modulation)
 
 # A 0 coding that doesn't fit (e.g. NN with previous bit being 1)
