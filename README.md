@@ -12,9 +12,24 @@ files' comments.
 
 To use, run mfm_decoder interactively in ipython, i.e. `ipython3 -i mfm_decoder.py`, then invoke `demonstrate("your-file.au")`
 
-The tracks/ directory contains some sample tracks, all compressed with bz2.
-(Uncompress before using.)
+The tracks/ directory contains some sample tracks in FluxEngine and .au format.
+The .au files are all compressed with bz2. (Uncompress before using.)
 
-- low_level_format_with_noise: every sector is 0x00 or 0xF6. Some weird effects on the flux transitions in certain places. Useful for testing recovery ideas later.
-- MS_Plus_OK_track - OK track from a Microsoft Plus! floppy. This one can be decoded fine with FluxEngine (given the source data this .au is from)
+- low_level_format_with_noise: every sector is 0x00 or 0xF6. Some weird effects on the flux transitions in certain places. Useful for testing recovery ideas later, because the data pattern on the corrupted sectors is known.
+- MS_Plus_OK_track - OK track from a Microsoft Plus! floppy. This one can be decoded fine with FluxEngine.
 - MS_Plus_warped_track - Warped track from a Microsoft Plus! floppy. FluxEngine can't cleanly decode every sector, but mfm_decoder can.
+
+## Experimental local dewarping
+
+mfm_decoder also contains functions to do a sliding window k-medians-based
+correction of jitter/warping. This makes sectors easier to read in some cases,
+and could potentially recover data from fragile disks where every read counts.
+However, it is slow at the moment.
+
+`demonstrate()` demonstrates the dewarping functionality, and passing
+`show_plot=True` will show some before-and after plots, like this:
+
+Before:
+<img src="doc/MSPlus_warped_before.svg" width=300>
+After:
+<img src="doc/MSPlus_warped_after.svg" width=300>
