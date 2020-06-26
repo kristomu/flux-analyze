@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
-import struct
+import struct, timeit
 import kmedian
 
 # USAGE: Create the AU file with
@@ -541,6 +541,17 @@ def demonstrate(au_name, show_plot=False):
 		(invstat[0], invstat[1], invstat[0]/(invstat[0]+invstat[1])))
 	bad_sector_keys = set(dewarp_cat.keys()) - set(dewarp_cat_valid.keys())
 	print("\t\tNumber of sectors: %d\tBad sectors: %d" % (len(dewarp_cat.keys()), len(bad_sector_keys)))
+
+def time_weighted(pulses):
+	print("Timing k-median calculations... This might take a while.")
+	timer = timeit.Timer(lambda: kmedian.wt_optimal_k_median(pulses, 3),
+		"from __main__ import np, kmedian")
+	weighted_time = timer.timeit(10) / 10
+	timer = timeit.Timer(lambda: kmedian.optimal_k_median(pulses, 3),
+		"from __main__ import np, kmedian")
+	unweighted_time = timer.timeit(1)
+	print("Calculation time: unweighted: %.5f sec, weighted: %.5f sec, speed factor: %.2f x" %
+		(unweighted_time, weighted_time, unweighted_time/weighted_time))
 
 # hist_cat, hist_cat_valid = categorize_decoded(hist_decoded)
 
