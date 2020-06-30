@@ -42,8 +42,11 @@ def scatter_plot(pulse_deltas, len, start=0, step=1):
 # (if correct_warping is false), or the reconstructed pulse array, corrected
 # for warping, if correct_warping is true.
 
-def get_assignments(pulse_deltas, bands=3, correct_warping=True):
-	global_clusters = kmedian.wt_optimal_k_median(pulse_deltas, bands)
+def get_assignments(pulse_deltas, bands=3, correct_warping=True,
+	global_clusters=None):
+
+	if global_clusters is None:
+		global_clusters = kmedian.wt_optimal_k_median(pulse_deltas, bands)
 
 	if correct_warping:
 		print("Correcting warping. This may take some time...")
@@ -502,10 +505,12 @@ def get_invalid_chunk_stats(decoded):
 
 	return (valid, invalid)
 
-def demonstrate(au_name, show_plot=False):
+def demonstrate(au_name, show_plot=False, global_clusters=None):
 	pulses = get_pulse_deltas(au_name)
-	assign_wo_dewarp, pulses_copy = get_assignments(pulses, correct_warping=False)
-	assign_with_dewarp, dewarped_pulses = get_assignments(pulses, correct_warping=True)
+	assign_wo_dewarp, pulses_copy = get_assignments(pulses, correct_warping=False,
+		global_clusters=global_clusters)
+	assign_with_dewarp, dewarped_pulses = get_assignments(pulses, correct_warping=True,
+		global_clusters=global_clusters)
 
 	if show_plot:
 		scatter_plot(pulses, 30000, step=5)
