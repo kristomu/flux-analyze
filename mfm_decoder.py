@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import struct, timeit
 import kmedian
+import kcenter
 
 # USAGE: Create the AU file with
 # fluxengine convert fluxtoau -s SOURCE/:t=TRK:s=SIDE -o somename.au
