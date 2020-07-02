@@ -15,19 +15,65 @@ import sortedcontainers as sc
 # more points are removed.
 
 # It's very slow, and the stuff below is very cut and paste.
+# Now it's not as slow, but unweighted is slower than it used to be.
 
 # Get the prefix sum array x (for use in CC etc). Points are given in
 # ascending order.
 def get_cdf(points):
 	return np.cumsum(points)
 
-# Grønlund et al.'s CC function for the K-median problem. x is the sorted
-# list of points in ascending order, and px is the prefix sum from the above
-# function.
+# Grønlund et al.'s CC function, adapted to the k-center problem with
+# outliers.
 # CC(x,i,j) is the cost of grouping x_i...x_j into one cluster with the
-# optimal cluster point (the median point). By programming convention, the
-# interval is half-open and indexed from 0, unlike the paper's convention
-# of closed intervals indexed from 1.
+# optimal cluster point. By programming convention, the interval is
+# half-open and indexed from 0, unlike the paper's convention of closed
+# intervals indexed from 1.
+# Since the k-center problem with outliers allows for discarding some
+# number of points, the optimal point is no longer the median, because it
+# may be the case that another point allows for discarding fewer points,
+# even if the maximum value of the residuals is worse. Thus we need an
+# auxiliary function to determine the optimum center, which is done in p
+# log p time for p points.
+# It can be done quicker if required (definitely in p time, possibly in
+# log(p) time). However, that would come at a cost of additional code
+# complexity, so I'll leave it alone for the time being.
+# x must be sorted in ascending order.
+# Returns the location of the center, the maximum residual (distance from
+# center), and the number of dropped points.
+def find_optimal_center(x, i, j):
+	if i >= j:
+		raise Exception("find_optimal_center: empty area")
+
+	recordholder = None
+	record_distance = 0
+
+	# Assume the left end of the interval captured by the center is k.
+	# The other end is wherever the value is greater than the value at k,
+	# by more than 2 * radius -- or the end of the range if it doesn't
+	# happen.
+	for k in range(i, j):
+		# No future record can break the current one
+		if j-k < record_distance:
+			continue
+
+		# First element exceeding this value.
+		k_end = k + x[k:j].searchsorted(x[k] + 2 * radius, side='right')
+		if (k_end - k) > record_distance:
+			record_distance = k_end - k
+			recordholder = k
+
+	if recordholder is None:
+		raise Exception("Could not find recordholder - bug in code")
+
+	first, last = recordholder, recordholder + record_distance - 1
+	center = (x[first] + x[last]) / 2.0
+	max_residual = max(center-x[i], x[j-1]-center)
+	max_residual = min(radius, max_residual)
+
+	dropped_values = j-i-record_distance
+
+	return center, max_residual, dropped_values
+
 def CC(x, px, i, j):
 	if i >= j: return (0,0)
 
@@ -36,13 +82,24 @@ def CC(x, px, i, j):
 	# Lots of nasty off-by-one traps here.
 	mu = (x[int(np.floor(m))] + x[int(np.ceil(m))]) / 2		# median
 
-	# With outliers, Lagrange approach, quick and dirty.
-	# The first count is the maximum value of non-dropped points,
-	# and the second count is the number of dropped points.
-	dropped_points = np.sum(np.abs(mu - x[i:j]) > radius)
-	return (max(min(mu - x[i], radius), min(x[j-1] - mu, radius)), dropped_points)
+	# For k-center with outliers, there're two options: either some
+	# of the points between i and j will be classified as outliers,
+	# or none will be. If none, then the median is the optimal position
+	# for the center and we're good to go. But if either end of the
+	# range exceeds the radius (threshold for considering something an
+	# outlier), with the median as the cluster, then there may be a
+	# better point and we need to manually find it.
 
-# the kn log n algorithm.
+	if mu - x[i] > radius or x[j-1] - mu > radius:
+		center, maxval, dropped_points = find_optimal_center(x, i, j)
+	else:
+		center, maxval, dropped_points = mu, \
+			max(mu - x[i], x[j-1] - mu), 0
+
+	return maxval, dropped_points
+
+# the stuff from the kn log n algorithm. I no longer know its exact
+# complexity, due to find_optimal_center.
 # D_previous is the D vector for (i-1) clusters, or empty if i < 2.
 # It's possible to do this even faster (and more incomprehensibly).
 # See Grønlund et al. for that.
@@ -87,12 +144,17 @@ def monotone_matrix_indices(M, min_row, max_row, min_col, max_col,
 	# And no higher row can have a minimum to the left.
 	monotone_matrix_indices(M, cur_row+1, max_row, min_here, max_col, Tout, Dout)
 
-def optimal_k_center(points, num_clusters):
-	pts_sorted = sorted(points)
+def optimal_k_center(points, num_clusters, radius_in):
+	pts_sorted = np.array(sorted(points))
 	pts_cumulative = get_cdf(pts_sorted)
 	pts_len = len(pts_sorted)
 
 	print(pts_len)
+
+	# Ugly hack since I can't yet be bothered to thread the radius
+	# parameter through all the functions needed... Fix later!
+	global radius
+	radius = radius_in
 
 	T, D = [[]], [[]]
 
@@ -128,8 +190,9 @@ def optimal_k_center(points, num_clusters):
 		print(i)
 		cluster_boundaries.append(T[i][cur_clustering_range])
 		new_cluster_range = T[i][cur_clustering_range]
-		centers.append(
-			np.median(pts_sorted[new_cluster_range:cur_clustering_range]))
+		center, maxval, dropped_points = find_optimal_center(pts_sorted,
+				new_cluster_range, cur_clustering_range)
+		centers.append(center)
 		cur_clustering_range = new_cluster_range
 
 	return np.array(sorted(centers)), num_dropped
@@ -137,7 +200,7 @@ def optimal_k_center(points, num_clusters):
 # --- WEIGHTED STUFF ---
 
 # The points all have one of a very small range of values (compared to the
-# number of points). Since k-medians clustering is either a point or the
+# number of points). Since k-center clustering is either a point or the
 # mean of two points, we can then do calculations with n being the number
 # of distinct points, rather than the number of points, so that O(kn log n)
 # becomes much quicker in concrete terms.
@@ -152,6 +215,9 @@ def optimal_k_center(points, num_clusters):
 # Construct the prefix sum by using a counting sort. Since the range
 # is very small, this cuts out time down from the O(n log n) required
 # to sort, to O(n) with a manageable constant factor.
+
+# K-center note: I'm still not entirely sure of the new complexity.
+# It's probably not kn log n.
 def wt_get_prefix_sum(pts):
 	count_per_value = np.bincount(pts)
 
@@ -213,18 +279,15 @@ def wt_cumulative_at(weighted_cdf, index, i):
 # Returns the number of points represented by the weighted cdf interval
 # [i, j)
 def wt_num_points_between(weighted_cdf, i, j):
-	print("From %d to %d with len %d" % (i, j, len(weighted_cdf)))
+	j = min(j, len(weighted_cdf))
+	i = max(i, 0)
+
 	if i >= j:
 		return 0
 
 	points_below = 0
 	if i > 0:
 		points_below = weighted_cdf[i-1][0]
-	if j >= len(weighted_cdf):
-		if i < len(weighted_cdf):
-			return points_below
-		else:
-			return 0
 
 	return weighted_cdf[j-1][0] - points_below
 
@@ -233,6 +296,38 @@ def wt_num_points_between(weighted_cdf, i, j):
 # of clustering all points between the one described by the zeroth weighted
 # cdf entry, and up to (but not including) the last. In other words, it's
 # CC([0, 0, 1, 1], 0, 5).
+
+def wt_find_optimal_center(weighted_cdf, i, j):
+	if i >= j:
+		raise Exception("wt_find_optimal_center: empty area")
+
+	recordholder = None
+	record_distance = 0
+	record_dist_index = 0
+
+	for k in range(i, j):
+		# No future record can break the current one
+		if wt_num_points_between(weighted_cdf, k, j) < record_distance:
+			continue
+
+		# First element exceeding this value.
+		k_end = k + weighted_cdf[k:j,2].searchsorted(weighted_cdf[k][2] + 2 * radius, side='right')
+		if wt_num_points_between(weighted_cdf, k, k_end) > record_distance:
+			record_distance = wt_num_points_between(weighted_cdf, k, k_end)
+			record_dist_index = k_end - k
+			recordholder = k
+
+	if recordholder is None:
+		raise Exception("Could not find recordholder - bug in code")
+
+	first, last = recordholder, recordholder + record_dist_index - 1
+	center = (weighted_cdf[first][2] + weighted_cdf[last][2]) / 2.0
+	max_residual = max(center-weighted_cdf[i][2], weighted_cdf[j-1][2]-center)
+	max_residual = min(radius, max_residual)
+
+	dropped_values = wt_num_points_between(weighted_cdf, i, j) - record_distance
+	return center, max_residual, dropped_values
+
 def wt_CC(weighted_cdf, i, j):
 	if i >= j: return (0,0)
 
@@ -263,35 +358,14 @@ def wt_CC(weighted_cdf, i, j):
 	sum_above = weighted_cdf[j-1][1] - wt_cumulative_at(weighted_cdf,
 		lower_median_idx, np.floor(median_pt))
 
-	# Calculate the sum of all cdf entries between i and j where the
-	# difference from mu is greater than the radius; these will be the
-	# dropped points.
-	# THIS DOES NOT YET WORK!
-	#first_preserved = i + weighted_cdf[i:j+1,2].searchsorted(np.floor(mu - radius), side='right')
-	#last_preserved = i + weighted_cdf[i:j+1,2].searchsorted(np.floor(mu + radius), side='right') - 1
-	#print("First preserved:", first_preserved, "Last preserved: ", last_preserved)
-	#print("Mu: %.2f at first preserved: %d at previous %d at last preserved %d at next %d" % (
-	#	mu, weighted_cdf[first_preserved][2], weighted_cdf[max(0, first_preserved-1)][2],
-	#	weighted_cdf[last_preserved][2], weighted_cdf[min(len(weighted_cdf)-1, last_preserved+1)][2]))
-	#dropped_points = wt_num_points_between(weighted_cdf, i, first_preserved) + \
-		#wt_num_points_between(weighted_cdf, last_preserved+1, j+1)
-	#print(dropped_points)
-	#print(wt_num_points_between(weighted_cdf, i, first_preserved),
-	#	wt_num_points_between(weighted_cdf, last_preserved, j))
+	if mu - weighted_cdf[i][2] > radius or weighted_cdf[j-1][2] - mu > radius:
+		center, maxval, dropped_points = wt_find_optimal_center(weighted_cdf,
+			i, j)
+	else:
+		center, maxval, dropped_points = mu, \
+			max(mu - weighted_cdf[i][2], weighted_cdf[j-1][2] - mu), 0
 
-	# BRUTE FORCE. FIX LATER
-	# Determine all points that are smaller than mu-radius or greater than mu+radius.
-	# There's still something slightly off when mu is non-integer. Also fix later.
-	dropped_points = 0
-	for k in range(i, j):
-		if (weighted_cdf[k][2] < mu-radius) or (weighted_cdf[k][2] > mu+radius):
-			num_points_here = weighted_cdf[k][0]
-			if k > 0:
-				num_points_here -= weighted_cdf[k-1][0]
-			dropped_points += num_points_here
-
-	return (max(min(mu - weighted_cdf[i][2], radius), min(weighted_cdf[j-1][2] - mu, radius)), dropped_points)
-	#return (max(mu - weighted_cdf[i][2], weighted_cdf[j-1][2] - mu), 0)
+	return maxval, dropped_points
 
 # A test that weighted CC is the same as unweighted.
 def test_wt_CC():
@@ -364,215 +438,9 @@ def wt_optimal_k_center(points, num_clusters, radius_in):
 		new_cluster_range = T[i][cur_clustering_range]
 		# Reconstruct the cluster that's the median point between
 		# new_cluster_range and cur_clustering_range.
-		centers.append(wt_median(wt_pts_cumulative, new_cluster_range,
-			cur_clustering_range))
+		center, maxval, dropped_points = wt_find_optimal_center(
+			wt_pts_cumulative, new_cluster_range, cur_clustering_range)
+		centers.append(center)
 		cur_clustering_range = new_cluster_range
 
 	return np.array(sorted(centers)), num_dropped
-
-# Assign each point to the cluster closest to it. Returns the assignment
-# of points to clusters, as well as the residuals (signed distances).
-# Works with local clusters if cluster_pts is the transpose of the local
-# clusters list (as a matrix); see assign_to_local_clusters.
-# TODO? "Soft assignments" indicating how far the point is from the next
-# closest cluster, or from some reasonable distance -- to detect dropped
-# flux reversals in the case of very long delays (e.g. 80 most likely two
-# 40 pulses with one of them having been lost by magnetic decay).
-def assign_to_clusters(pulse_deltas, cluster_pts):
-	# First assign everything to cluster 0.
-	residuals = pulse_deltas - cluster_pts[0]
-	assignment = np.array([0]*pulse_deltas)
-
-	# Then assign to other clusters.
-	for i in range(1, len(cluster_pts)):
-		residuals_this = pulse_deltas - cluster_pts[i]
-		assignment[np.abs(residuals_this) < np.abs(residuals)] = i
-		residuals[np.abs(residuals_this) < np.abs(residuals)] = \
-			residuals_this[np.abs(residuals_this) < np.abs(residuals)]
-
-	return assignment, residuals
-
-def sum_distances(pulse_deltas, cluster_pts):
-	assignment, residuals = assign_to_clusters(pulse_deltas, cluster_pts)
-	return np.sum(np.abs(residuals))
-
-# Adaptive k-median (dewarping).
-
-# If the disk has a wobble, is warped, or just a mechanical snag somewhere,
-# then everything on a certain area of the plastic might register with
-# consistently higher (or lower) pulse delays than elsewhere. Correcting
-# such a warp seems to improve the chance of restoring data in edge cases.
-
-# I've chosen a strategy of using a sliding window centered on the point to
-# be corrected. If points in the neighborhood are all higher than usual,
-# then we'll correct that point down, and vice versa. Just like the code
-# above, I'll use k-median for this.
-
-# There is a snag, however. It may happen that every pulse within the
-# sliding window is the same multiple of the clock. If so, directly using
-# k-median would place all three clusters near the band in question, and
-# points that rightly belong to the same band would be classified as three
-# different ones.
-
-# To fix that, we'll first use an optimal k-median on the sliding window
-# area around the first point. Then we'll compare the points to the global
-# k-median; if more than one of the local clusters are assigned to the same
-# global cluster, then we replace the one furthest away with the global
-# cluster that's not represented. We'll repeat until done. That should
-# represent the bands that aren't present inside the sliding window.
-
-# Then for further points, we just have to keep the invariant that every
-# band has a cluster assigned to it, even when that band's not physically
-# present. So my strategy is to, when we slide the window one pulse to the
-# right, pop off the old value, push in the new value, and run Lloyd's
-# algorithm on the clusters from the previous point. That will leave any
-# clusters with no representation alone, while moving clusters that are
-# represented according to the general shift in delays.
-
-# I've sped up Lloyd's algorithm by using a sorted structure with O(log n)
-# insertion. In C++, that can be done with a map.
-
-# Known bugs: The dewarper can sometimes get confused in areas with a lot
-# of corruption. (I've added a quick and dirty fix.) Also quite sloow.
-
-# Window size should be odd: the center gets one point, and then equal sized
-# wings to either direction of the center.
-
-def local_k_median(pts, start_center=0, window_size=301, test_interval=801,
-	global_clusters=None, num_clusters=3):
-
-	# Window sides
-	left_of_center = window_size//2
-	right_of_center = window_size - 1 - left_of_center
-
-	# One for each point in the pts array.
-	local_clusters_per_point = []
-
-	# Get the global clusters in sorted order.
-	if global_clusters is None:
-		global_clusters = wt_optimal_k_median(pts, num_clusters)
-
-	# Since there's nothing to the left of the leftmost point, start with
-	# a window that includes the center plus points to the right.
-	# If a different start point has been specified, also include points
-	# to the left (if any).
-	left_side = max(0, start_center - left_of_center)
-	right_side = min(len(pts), start_center + right_of_center + 1)
-
-	local_clusters = wt_optimal_k_median(pts[left_side:right_side],
-		num_clusters)
-
-	# Find out which local cluster is closest to the kth global cluster,
-	# so we can augment and replace if some global clusters are missing.
-	closest_local_clusters = [(np.inf, np.inf)] * num_clusters
-	for i in range(num_clusters):
-		distances = np.abs(local_clusters[i] - global_clusters)
-		closest_global, distance = np.argmin(distances), np.min(distances)
-		candidate_cluster_info = (i, distance)
-
-		if candidate_cluster_info[1] < closest_local_clusters[closest_global][1]:
-			closest_local_clusters[closest_global] = candidate_cluster_info
-
-	local_clusters_augmented = []
-	for i in range(num_clusters):
-		if closest_local_clusters[i][0] == np.inf:
-			local_clusters_augmented.append(global_clusters[i])
-		else:
-			local_clusters_augmented.append(local_clusters[closest_local_clusters[i][0]])
-
-	local_clusters = np.array(local_clusters_augmented)
-	local_clusters_per_point.append(local_clusters_augmented)
-
-	# We now have a suitable local cluster group for the first point.
-	# For our invariant, insert every point we just classified into
-	# a sliding window, and then start from the second point on.
-
-	classified_points = sc.SortedList(pts[:(right_of_center+1)])
-	test_counter = 0
-
-	for i in range(start_center+1, len(pts)):
-		# If we're at a test interval, check if the global clustering fits
-		# better than the last local cluster. This may happen if the
-		# invariant is violated at some point, e.g. Lloyd's gets confused
-		# due to noise. (What a hack.)
-
-		test_counter += 1
-		if test_counter >= test_interval:
-			test_counter = 0
-			current_section = pts[(i - left_of_center):(i + right_of_center + 1)]
-			if sum_distances(current_section, global_clusters) < \
-				sum_distances(current_section, local_clusters):
-				local_clusters = global_clusters
-
-		# If the point we're to remove is the same as the point we're
-		# to add, there's no need to do anything at all: just push
-		# the same cluster.
-		if (i - left_of_center > 0) and (i + right_of_center < len(pts)):
-			if pts[i - left_of_center - 1] == pts[i + right_of_center]:
-				local_clusters_per_point.append(local_clusters)
-				continue
-
-		# Remove the point at the left edge of the window, if it's a
-		# real point (i.e. not the first window_size/2 times)
-		if i - left_of_center > 0:
-			classified_points.discard(pts[i - left_of_center - 1])
-
-		# Add the point at the right edge of the window, if it's a
-		# real point (i.e. not the last window_size/2 times)
-		if i + right_of_center < len(pts):
-			classified_points.add(pts[i + right_of_center])
-
-			# If what we add is equal to any cluster's center, then every
-			# cluster stays the same. (Only test the lowest cluster because
-			# that one happens most often.)
-			if pts[i+right_of_center] == local_clusters[0]:
-				local_clusters_per_point.append(local_clusters)
-				continue
-
-		# Now all sorted points are on [i - left_of_center,
-		# i + right_of_center + 1) unless truncated due to the beginning
-		# or end of the pts array.
-
-		# Get lower bounds for the range covered by each cluster but the
-		# first, whose lower bound is -infinity.
-		# https://stackoverflow.com/questions/23855976/
-		lower = (local_clusters[1:] + local_clusters[:-1]) / 2
-
-		# Get the sorted list indices for these, and for the first cluster
-		# (which is 0). Also add the upper bound for the final cluster,
-		# which is the number of points.
-		lower_idx = np.array([0] + [classified_points.bisect_left(x) for x in lower] \
-			+ [len(classified_points)])
-
-		# Get the midpoints and do Lloyd's algorithm by finding new medians.
-		# We need to do this explicitly because one of the bins may be empty
-		# (e.g. no pulses in the corresponding band), which must then be
-		# detected.
-		new_local_clusters = np.array([0]*num_clusters)
-		for j in range(num_clusters):
-			# If we have too few points to make a proper decision,
-			# then don't. Use the cluster from the last iteration to
-			# avoid being skewed by outliers.
-			if lower_idx[j+1] - lower_idx[j] <= 10:
-				new_local_clusters[j] = local_clusters[j]
-			else:
-				median_idx = (lower_idx[j+1] + lower_idx[j] - 1) / 2
-				# TODO: Handle medians that fall between points, here.
-				# Or maybe this is good enough??
-				new_local_clusters[j] = \
-					classified_points[int(np.floor(median_idx))]
-
-		local_clusters = new_local_clusters
-		local_clusters_per_point.append(local_clusters)
-
-	return np.array(local_clusters_per_point)
-
-# The same, but with dynamic clusters as returned by local_k_median.
-def assign_to_local_clusters(pulse_deltas, local_clusters_per_point):
-	return assign_to_clusters(pulse_deltas, local_clusters_per_point.T)
-
-# Returns a corrected pulse delay list given assignments and distances,
-# i.e. what it would be like with absolutely no variation in local
-# clusters. Mostly useful for fancy plots.
-def correct_warp(assignments, residuals, global_clusters):
-	return global_clusters[assignments] + residuals
