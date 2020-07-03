@@ -16,6 +16,9 @@ import sortedcontainers as sc
 
 # It's very slow, and the stuff below is very cut and paste.
 # Now it's not as slow, but unweighted is slower than it used to be.
+# There's a bug somewhere involving tie breaking, with weighted providing
+# a different result than unweighted. However, both results have the same
+# score (number of dropped points and maximum distance).
 
 # Get the prefix sum array x (for use in CC etc). Points are given in
 # ascending order.
@@ -249,7 +252,7 @@ def wt_median(weighted_cdf, i, j):
 	# which is why the -1 has to be turned into +1.
 	median_pt = (lower_count+upper_count+1)/2.0
 
-	lower_median_idx = weighted_cdf[0:,0].searchsorted(
+	lower_median_idx = i + weighted_cdf[i:,0].searchsorted(
 		np.floor(median_pt))
 
 	if (int(np.ceil(median_pt)) == int(np.floor(median_pt))) or \
@@ -331,39 +334,25 @@ def wt_find_optimal_center(weighted_cdf, i, j):
 def wt_CC(weighted_cdf, i, j):
 	if i >= j: return (0,0)
 
-	lower_count = 0
-	if i > 0:
-		lower_count = weighted_cdf[i-1][0]
-	upper_count = weighted_cdf[j-1][0]
+	# Before we go about calculating medians, determine if any points
+	# will be dropped. If so, just go directly to the function that
+	# determines which those are.
 
-	median_pt = (lower_count+upper_count+1)/2.0
-
-	lower_median_idx = weighted_cdf[0:,0].searchsorted(
-		np.floor(median_pt))
-
-	if (int(np.ceil(median_pt)) == int(np.floor(median_pt))) or \
-		int(np.floor(median_pt)) != weighted_cdf[lower_median_idx][0]:
-		mu = weighted_cdf[lower_median_idx][2]
-	else:
-		mu = (weighted_cdf[lower_median_idx][2] + \
-			weighted_cdf[lower_median_idx+1][2]) / 2.0
-
-	# Lower part: entry i to median point between i and j, median excluded.
-	sum_below = wt_cumulative_at(weighted_cdf, lower_median_idx,
-		np.floor(median_pt))
-	if i > 0:
-		sum_below -= weighted_cdf[i-1][1]
-	# Upper part: everything from the median up, median included if it's a
-	# real point.
-	sum_above = weighted_cdf[j-1][1] - wt_cumulative_at(weighted_cdf,
-		lower_median_idx, np.floor(median_pt))
-
-	if mu - weighted_cdf[i][2] > radius or weighted_cdf[j-1][2] - mu > radius:
+	if weighted_cdf[j-1][2] - weighted_cdf[i][2] > 2 * radius:
 		center, maxval, dropped_points = wt_find_optimal_center(weighted_cdf,
 			i, j)
-	else:
-		center, maxval, dropped_points = mu, \
-			max(mu - weighted_cdf[i][2], weighted_cdf[j-1][2] - mu), 0
+		return maxval, dropped_points
+
+	# Hold on, isn't the midrange better? Consider e.g. the set
+	# [0, 0, 0, 100, 100]. The mid-range has max residual 50, but the
+	# median has max residual 100. Whoops.
+
+	# With leximin, it would be even trickier. Good thing we don't have
+	# to deal with that here...
+
+	center = (weighted_cdf[i][2] + weighted_cdf[j-1][2]) / 2.0
+	maxval = weighted_cdf[j-1][2] - center
+	dropped_points = 0
 
 	return maxval, dropped_points
 
@@ -393,8 +382,10 @@ def wt_C_i(weighted_cdf, i, D_previous, m, j):
 
 # for the floppy images, 2 is a good choice for radius. 1 is too little,
 # but even something like 10 will work.
-def wt_optimal_k_center(points, num_clusters, radius_in):
-	wt_pts_cumulative = wt_get_prefix_sum(points)
+def wt_optimal_k_center(points, num_clusters, radius_in, wt_pts_cumulative=None):
+	if wt_pts_cumulative is None:
+		wt_pts_cumulative = wt_get_prefix_sum(points)
+
 	unique_points = len(wt_pts_cumulative)
 
 	# Ugly hack since I can't yet be bothered to thread the radius
@@ -415,7 +406,7 @@ def wt_optimal_k_center(points, num_clusters, radius_in):
 		M = lambda m, j: wt_C_i(wt_pts_cumulative, i, D[-1], m, j)
 
 		Tout = [0] * (unique_points+1)
-		Dout = [0.0] * (unique_points+1)
+		Dout = [(0.0, 0.0)] * (unique_points+1)
 
 		monotone_matrix_indices(M, i, unique_points+1, i-1, unique_points+1,
 			Tout, Dout)
@@ -444,3 +435,19 @@ def wt_optimal_k_center(points, num_clusters, radius_in):
 		cur_clustering_range = new_cluster_range
 
 	return np.array(sorted(centers)), num_dropped
+
+def wt_debug(points, wt_pts_cumulative=None):
+	if wt_pts_cumulative is None:
+		wt_pts_cumulative = wt_get_prefix_sum(points)
+
+	for i in range(len(wt_pts_cumulative)+1):
+		print("")
+		for j in range(len(wt_pts_cumulative)+1):
+			print("Debug: CC", i, ",", j, "=", wt_CC(wt_pts_cumulative, i, j))
+
+def get_residuals(data, clustering):
+	residuals = np.abs(data - clustering[0])
+	for i in range(1, len(clustering)):
+		residuals = np.minimum(residuals, np.abs(data - clustering[i]))
+
+	return residuals
