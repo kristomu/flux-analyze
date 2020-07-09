@@ -1,9 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from collections import defaultdict
-import struct, timeit
+from collections import defaultdict, deque
+import struct, timeit, copy
 import kmedian
 import kcenter
+import re
+
+from scipy.stats import trim_mean
 
 # USAGE: Create the AU file with
 # fluxengine convert fluxtoau -s SOURCE/:t=TRK:s=SIDE -o somename.au
@@ -18,6 +21,23 @@ import kcenter
 # Call the groupings (categories) "bands" to follow KF terminology.
 
 # TODO? Do something clever with the error report when decoding MFM.
+
+# A typical run now is:
+# pulses = get_pulse_deltas("file.au")
+# preambles_clusterings = assign_clusters_to_preambles(pulses)
+# assn = assign_on_preambles_clusterings(pulses, preambles_clusterings,
+#	cluster_on_preambles(pulses))
+# print_stats(decode_from_assignments(assn, datalen=512))
+
+# and then your score is the "Number of sectors" count.
+
+# This is considerably less format-agnostic than k-medians, but in turn
+# is considerably better. However, I still can't beat fluxengine on
+# every sample I have. In particular, fluxengine gets 18 good sectors on
+# "low level format with noise", while I'm only able to get 17.
+
+# preambles_clusterings doesn't contain all preambles. But then again,
+# I'm not searching for C2 codes yet.
 
 def get_pulse_deltas(au_filename):
 	file = open(au_filename, "rb")
@@ -48,6 +68,7 @@ def get_assignments(pulse_deltas, bands=3, correct_warping=True,
 
 	if global_clusters is None:
 		global_clusters = kmedian.wt_optimal_k_median(pulse_deltas, bands)
+		#global_clusters = kcenter.wt_optimal_k_center(pulse_deltas, bands, 3)[0]
 
 	if correct_warping:
 		print("Correcting warping. This may take some time...")
@@ -67,7 +88,7 @@ def get_assignments(pulse_deltas, bands=3, correct_warping=True,
 
 # The encoding table is, where R is a reversal and N is none:
 #	1	is represented by	NR
-#	0	is represented by	RN	if we last observed a 0 bit
+#	0	is represented by	RN	if we last observed a 0 bit.
 #	0	is represented by	NN	if we last observed a 1 bit.
 # (https://info-coach.fr/atari/hardware/FD-Hard.php#Modified_Frequency_Modulation)
 
@@ -79,6 +100,18 @@ def get_assignments(pulse_deltas, bands=3, correct_warping=True,
 # TODO? Clocking backwards, when the flux record doesn't start at a
 # sector boundary. The best approach is probably to try every offset
 # to see which works.
+
+# The illegal tuples are NR RN and RN NN. Complicating the fact is that
+# delays do not map strictly to tuples, e.g. a delay in the third band
+# may be perfectly allowed in one case and produce an error in another.
+# (E.g. NR NN NR is allowed, but RN NN RN is not.)
+
+# If we simply want to set the number of errors to zero, it should be
+# no problem to happen upon the location of the first error, and then
+# figure out what ranges of clustering will handle that error. Then do
+# the same for each subsequent error. However, that may produce wrong
+# results if there's a missing flux transition in there, after which
+# *everything* after that point becomes corrupted.
 
 def assignments_to_MFM_code(assignments):
 	# A flux reversal is symbolized by a zero bit, and
@@ -132,15 +165,17 @@ def subfinder(mylist, pattern):
 # (Strictly speaking, I could then add in the fact that the next nibble
 # must be all ones, but I can't be bothered.)
 
+zero_train_len = 7 * 8
+
 short_A1_code = [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1] * 3
-A1_prefix_code = [1, 0] * (7 * 8) + short_A1_code
+A1_prefix_code = [1, 0] * zero_train_len + short_A1_code
 
 # Ditto here, only the pattern is
 # 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0
 # [ 1 ] [ 1 ] [ 0 ] [ 0 ] [o:0] [ 0 ] [ 1 ] [ 0 ]
 
 short_C2_code = [0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0] * 3
-C2_prefix_code = [1, 0] * (7 * 8) + short_C2_code
+C2_prefix_code = [1, 0] * zero_train_len + short_C2_code
 
 def get_struct_starts(assignment, MFM_code, MFM_code_pos):
 	struct_starts = []
@@ -300,7 +335,7 @@ def acceptable_fuzzy_match(MFM_code):
 # Gap 1			50				10			4E
 # (IDAM starts)
 # Gap 2/Sync	12				8			00
-# IDAM			4				4			A1 A1 A1 FE
+# IDAM			4				4			A1 A1 A1 Fx
 # Track num		1				1			varies
 # Side num		1				1			varies
 # Sector num	1				1			varies
@@ -396,9 +431,8 @@ def decode_floppy_struct(dec_bytes, last_idam_datalen):
 # It's probably better to directly search for the out-of-band A1A1A1 tokens.
 # But then I would have to preprocess and classify the whole pulse stream
 # at once, first. Perhaps do that later.
-def decode_all(pulse_deltas):
+def decode_all(pulse_deltas, datalen=0):
 	pulse_runs = get_runs(pulse_deltas, min_run_length=80)
-	datalen = 0
 
 	decoded_structures = []
 
@@ -420,7 +454,9 @@ def decode_all(pulse_deltas):
 			# All of this should be fixed later.
 			struct["_num_errors"] = len(errors) - 3
 			if "datalen" in struct:
-				datalen = struct["datalen"]
+				# Don't trust the data length if CRC isn't OK.
+				if "CRC_OK" in struct and struct["CRC_OK"]:
+					datalen = struct["datalen"]
 
 			decoded_structures.append(struct)
 		except KeyError:
@@ -431,10 +467,10 @@ def decode_all(pulse_deltas):
 
 # For debugging. HACK. TODO: Fix later.
 
-def decode_all_from_MFM(assignments, MFM_code, MFM_pos, struct_starts=None):
+def decode_all_from_MFM(assignments, MFM_code, MFM_pos, struct_starts=None,
+	datalen=0):
 	if struct_starts is None:
 		struct_starts = get_struct_starts(assignments, MFM_code, MFM_pos)
-	datalen = 0
 
 	decoded_structures = []
 
@@ -468,8 +504,10 @@ def decode_all_from_MFM(assignments, MFM_code, MFM_pos, struct_starts=None):
 			struct["_num_errors"] = len(errors) - 3
 			if len(errors) > 3:
 				struct["_first_error"] = errors[3]
+			# Don't trust the data length if CRC isn't OK.
 			if "datalen" in struct:
-				datalen = struct["datalen"]
+				if "CRC_OK" in struct and struct["CRC_OK"]:
+					datalen = struct["datalen"]
 
 			decoded_structures.append(struct)
 		except KeyError:
@@ -506,47 +544,797 @@ def get_invalid_chunk_stats(decoded):
 
 	return (valid, invalid)
 
+# warped.au
+# No PLL
+# Valid CRC chunks: 2072	Invalid: 50	Fraction valid: 0.976
+# Number of sectors: 21	Bad sectors: 0
+#
+# Simplest PLL, alpha=0.10
+# Valid CRC chunks: 2108  Invalid: 13     Fraction valid: 0.994
+# Number of sectors: 21   Bad sectors: 0
+#
+# Comprehensive dewarping with Lloyd's
+# Valid CRC chunks: 2122	Invalid: 0	Fraction valid: 1.000
+# Number of sectors: 21	Bad sectors: 0
+#
+# Another_PLL
+# Valid CRC chunks: 2121	Invalid: 0	Fraction valid: 1.000
+# Number of sectors: 21	Bad sectors: 0
+#
+# So I know how to do this, now. Sort of.
+
+# "RETRY-77-4-t69.0.au" is a nice new standard.
+# First you have to find the right clustering. Best so far is 22, 33, 44.
+# Then dewarping helps immensely. But fluxengine gets 12 good sectors
+# *without* dewarping. I'm not there yet!
+
+# Also https://stats.stackexchange.com/questions/6920/efficient-online-linear-regression
+
+def assign(pulses, clustering):
+	assignments = []
+
+	for i in range(len(pulses)):
+		assignment = np.argmin(np.abs(pulses[i] - clustering))
+		assignments.append(assignment)
+
+	return assignments
+
+def simplest_ever_pll(pulses, x=None, alpha=0.10):
+	if x is None:
+		x = kmedian.wt_optimal_k_median(pulses[:3000], 3)
+	assignments = []
+
+	for i in range(len(pulses)):
+		assignment = np.argmin(np.abs(pulses[i] - x))
+		assignments.append(assignment)
+		residual = pulses[i] - x[assignment]
+
+		# Relative residual
+		rel_residual = residual / x[assignment]
+
+		# Adjust the pulse delays accordingly.
+		x = x + x * rel_residual * alpha
+
+	return assignments
+
+def another_pll(pulses, x=None, alpha=0.05):
+	if x is None:
+		x = kmedian.wt_optimal_k_median(pulses[:3000], 3)
+	assignments = []
+
+	for i in range(31, len(pulses)-15):
+		residuals = []
+		for j in range(-15, 15):
+			assignment = np.argmin(np.abs(pulses[i+j] - x))
+			residual = pulses[i+j] - x[assignment]
+			rel_residual = residual / x[assignment]
+
+		# Relative residual
+		rel_residual = np.median(rel_residual)
+
+		# Adjust the pulse delays accordingly.
+		x = x + x * rel_residual * alpha
+
+		assignment = np.argmin(np.abs(pulses[i] - x))
+		assignments.append(assignment)
+		#residual = pulses[i] - x[assignment]
+
+	return assignments
+
+# Drop that alpha and use a much larger window instead?
+def shifted_window_pll(pulses, start_pos, end_pos, x=None, alpha=0.005):
+	if x is None:
+		x = kmedian.wt_optimal_k_median(pulses[start_pos:start_pos+3000], 3)
+	assignments = []
+
+	window_size = 55
+	left_of_center = window_size//2
+	right_of_center = window_size - 1 - left_of_center
+
+	rel_residuals = deque()
+
+	for i in range(start_pos - left_of_center, start_pos - left_of_center + window_size):
+		assignment = np.argmin(np.abs(pulses[i] - x))
+		residual = pulses[i] - x[assignment]
+		rel_residuals.append(residual / x[assignment])
+
+	# Get the mean relative residual
+	mean_rel_residual = np.mean(rel_residuals)
+
+	for i in range(start_pos - left_of_center, end_pos - left_of_center):
+		# Adjust the pulse delays accordingly.
+		x = x + x * mean_rel_residual * alpha
+
+		# Assign the point in the center of the window
+		assignment = np.argmin(np.abs(pulses[i+left_of_center] - x))
+		assignments.append(assignment)
+
+		# Assign the point on the right, shift it in, remove
+		# what's to the left
+		assignment = np.argmin(np.abs(pulses[i+window_size] - x))
+		residual = pulses[i+window_size] - x[assignment]
+		new_rel_residual = residual / x[assignment]
+		old_rel_residual = rel_residuals.popleft()
+		rel_residuals.append(new_rel_residual)
+
+		mean_rel_residual -= old_rel_residual / window_size
+		mean_rel_residual += new_rel_residual / window_size
+
+	return assignments
+
+# Returns the number of MFM errors with this cluster assignment. Slow.
+# Possible future improvement: only count errors up to the end of whatever
+# struct is being investigated. That would require that decode inform the
+# function about how many MFM sequence bits it consumed.
+def get_tentative_errors(pulses, window_start, window_end, cluster_guess,
+	use_pll = False, pll_alpha=0):
+	assignments = []
+	if use_pll:
+		assignments = simplest_ever_pll(pulses[window_start:window_end], cluster_guess, pll_alpha)
+		#assignments = shifted_window_pll(pulses, window_start, window_end, x=cluster_guess, alpha=pll_alpha)
+	else:
+		for i in range(window_start, window_end):
+			assignment = np.argmin(np.abs(pulses[i] - cluster_guess))
+			assignments.append(assignment)
+
+	# ---------------------
+
+	MFM_code, MFM_pos = assignments_to_MFM_code(np.array(assignments))
+	struct_starts = get_struct_starts(assignments, MFM_code, MFM_pos)
+	unexpected_errors = 0
+
+	for i in range(len(struct_starts)):
+		struct_start = struct_starts[i][1]
+		if i == len(struct_starts)-1:
+			struct_end = len(MFM_code)
+		else:
+			# We don't know how long the struct is; assume it goes
+			# all the way to the next one. (May cause trouble with
+			# sector-in-sector style copy protection.)
+			struct_end = struct_starts[i+1][1]
+
+		bits, errors = decode_from_MFM(MFM_code[struct_start:struct_end])
+		# We expect one clock error for each repetition of the preamble.
+		# Fewer than that means we have an unexpected error (none where
+		# there should be one); more also means unexpected error.
+		unexpected_errors += np.abs(len(errors)-3)
+
+	return -len(struct_starts), unexpected_errors, -np.sum(assignments)
+
+# Do a bunch of informed tests before going to brute force.
+def baseline_tests(weights, i):
+	# Quick and dirty. TODO: FIX LATER.
+	try:
+		if i == 0:
+			return kmedian.wt_optimal_k_median_from_cumul(weights, 3)
+		if i >= 1 and i < 8:
+			return kmedian.optimal_k_median(kmedian.wt_optimal_k_median_from_cumul(weights, 3+i), 3)
+		if i >= 8 and i < 16:
+			return kcenter.wt_optimal_k_center_from_cumul(weights, 3, i-8)
+	except IndexError:
+		return np.array([20., 30., 40.])
+
+# optimizing on short-77-4-t69 (full length) and then running demonstrate
+# on the full version gets me
+#	Without dewarping:
+#		Valid CRC chunks: 2692	Invalid: 408	Fraction valid: 0.868
+#		Number of sectors: 17	Bad sectors: 1
+# fluxengine baseline is 12.
+
+# Note that we *cannot* use CRC validity as an optimization criterion
+# for this brute force cluster check. The reason is simple: that would
+# destroy the only independent signal we have of success, and thus
+# overfit easily. The 16 bit CRC would be overwhelmed in short order.
+
+# (We could possibly use CRC validity on the sectors we've already
+# recovered -- or really, accurate reproduction of the entire sector.)
+
+# ((Every time you test against the CRC, you throw a die with a certain
+# chance of success. If this die roll succeeds, the CRC return success
+# even though the content is wrong.))
+# The chance is 1/65k, so testing against the CRC 1024 times is on average
+# going to return a false positive (CRC OK when it really isn't) 1.6% of
+# the time such a batch is run. (Unless my reasoning is off.)
+# Doing actual directed optimization is much more likely to return a false
+# result.
+
+def brute_force_cluster_check(pulses, window, known_good=np.array([20., 30., 40.]), tries=200):
+	record_error = (np.inf, 0)
+	record_clusters = None
+	record_alpha = 0
+	alpha = 0
+	weights = kmedian.wt_get_prefix_sum(pulses[:window])
+	use_pll = False
+
+	for i in range(tries):
+		if i == 0:
+			if known_good is not None:
+				clusters = np.array(known_good)
+			else:
+				continue
+
+		if i < 17:
+			cluster_guess = baseline_tests(weights, i-1)
+			k = None
+			b = None
+		else:
+			k = np.random.uniform(8, 11)
+			b = np.random.uniform(-5, 5)
+			clusters = np.array([2*k + b, 3*k + b, 4*k + b])
+			use_pll = np.random.choice([True, False])
+			use_pll = False # doesn't properly work yet
+			if use_pll:
+				alpha = np.random.uniform(0.01, np.sqrt(0.12))**2
+			else:
+				alpha = 0
+
+		errors = get_tentative_errors(pulses, 0, window, clusters, use_pll,
+			alpha)
+		tiebreak = (errors == record_error) and \
+			np.sum(np.abs(clusters - known_good)) < \
+			np.sum(np.abs(record_clusters - known_good))
+
+		if errors < record_error or tiebreak:
+			print(clusters, k, b, errors)
+			record_error = errors
+			record_clusters = clusters
+			record_alpha = alpha
+
+	return record_clusters, record_alpha, record_error
+
+def do_brute_force(pulses, window_size=2000):
+	assignments = []
+	last_clustering = [22., 33., 44.]
+
+	for i in range(window_size, len(pulses)-window_size, window_size):
+		print("Testing %d of %d, i.e. %.3f %%" %(i, len(pulses),
+			(i*100)/len(pulses)))
+		cluster_guess, pll_alpha, error = brute_force_cluster_check(
+			pulses[i-window_size:i+window_size], window=4000,
+			known_good=last_clustering)
+		last_clustering = cluster_guess
+		print(cluster_guess)
+		if alpha > 0:
+			assignments += simplest_ever_pll(pulses[i:i+window_size],
+				cluster_guess, pll_alpha)
+		else:
+			for j in range(window_size):
+				assignment = np.argmin(np.abs(pulses[i+j] - cluster_guess))
+				assignments.append(assignment)
+
+	return assignments
+
+# detecting A1A1A1 preamble starts without knowing the clustering.
+# We have a bunch of zeroes, which are encoded as RNRNRN..
+# then we have the pattern NRNNNRNNRNNNRNNR thrice.
+# This is equivalent to, in terms of delays, to
+
+#  1   2   3    2   3    2
+# RN RNN RNNN RNN RNNN RNN R...
+
+# or, with two runs,
+
+#  1  2    3    2   3    2   1   3   2    3    2
+# RN RNN RNNN RNN RNNN RNN R N RNNN RNN RNNN RNN R...
+
+# That, in turn, means that the second delay must be longer than the
+# first, the third longer than the second, the fourth shorter than the
+# third, and so on... and that can be searched for without knowing the
+# exact delays!
+
+# Delta wise we have, for the two runs above:
+# 1->2		increase
+# 2->3		increase
+# 3->2		decrease
+# etc..
+
+# This will not work if there are runs of the same pulse length, because
+# we can't track equality in the presence of noise. (More robust three-valued
+# logic can do so, by essentially treating equality as wildcards. Not
+# implemented here.)
+preamble_pulse_sequence = [1, 2, 3, 2, 3, 2] + [1, 3, 2, 3, 2] * 2
+
+# This one can not be used in get_potential_preambles because of its
+# constant train of ones. However, it can be used when trying to find the
+# proper band parameters, later. It's shorter than the full A1 sequence
+# so that we can discover entries that have garbled zero trains in front.
+extended_preamble_pulse_sequence = [1] * 5 + preamble_pulse_sequence
+
+full_preamble_pulse_sequence = [1] * zero_train_len + preamble_pulse_sequence
+
+def get_potential_preambles(pulses):
+	pulse_differential = pulses[1:] > pulses[:-1]
+	differential_preamble = np.array(preamble_pulse_sequence[1:]) > \
+		np.array(preamble_pulse_sequence[:-1])
+
+	# https://stackoverflow.com/questions/4664850
+	return [m.start() for m in re.finditer(differential_preamble.tostring(),
+		pulse_differential.tostring())]
+
+# Once we've found a potential preamble, dump the numerical values into
+# separate categories corresponding to the bands they must be in (if the
+# match is real). This is used to determine the range of parameters where
+# the assignment will classify the pulse delays into their correct bands,
+# and thus will detect the preamble.
+def categorize_delays(pulses, start_pos, preamble_sequence):
+	points_by_band = [[] for x in range(3)]	# everything is a reference...
+
+	# These are offset from zero, so points_by_band[0] is the first band.
+	# For MFM, this first band has the value of somewhere around 2k+b,
+	# for unknown values k and b (that we have to find later).
+	for i in range(len(preamble_sequence)):
+		points_by_band[preamble_sequence[i]-1].append(pulses[start_pos+i])
+
+	return [np.array(x) for x in points_by_band]
+
+# Given a position where we recognized a preamble sequence, categorize
+# the points in the vicinity according to the full preamble pulse
+# sequence.
+
+def additional_pulses_extended_preamble():
+	return len(extended_preamble_pulse_sequence) - len(preamble_pulse_sequence)
+
+def additional_pulses_full_preamble():
+	return len(full_preamble_pulse_sequence) - len(preamble_pulse_sequence)
+
+def categorize_extended_preamble(pulses, partial_preamble_start):
+	longer_length_full = len(extended_preamble_pulse_sequence) - len(preamble_pulse_sequence)
+
+	return categorize_delays(pulses,
+		partial_preamble_start - longer_length_full,
+		extended_preamble_pulse_sequence)
+
+# Some model-based stuff follow. This might be useful for dewarping,
+# because every point informs the state space, thus avoiding the usual
+# "loss of gradient" problem.
+
+# The model is that
+# Points that belong to the first band are closest to 2*k + b
+# Points that belong to the second band are closest to 3*k + b
+# Points that belong to the third band are closest to 4*k + b.
+
+# (Am I making things too hard? Could all of this be replaced with a
+# k-medians or k-center clustering around only these points? That would
+# perhaps be an interesting variant.)
+
+# This returns 0 if the given assignment k,b, and given points
+# assignment, and otherwise returns the number of points violating
+# it as the integer part, and the distance of the point furthest from
+# being satisfied as the fractional part.
+def test_mfm(points_by_band, k, b):
+	bands_concatenated = np.concatenate(points_by_band)
+	centers = np.array([2, 3, 4]) * k + b
+
+	midpoints = (centers[1:] + centers[:-1]) / 2.0
+	# Add infinity points on each side because it's never possible
+	# to get low enough to not be assigned to the first band, or high
+	# enough not to be assigned to the last.
+	midpoints = np.concatenate([[-np.inf], midpoints, [np.inf]])
+
+	wrong_points = 0
+	max_distance = 0
+
+	for band_idx in range(len(points_by_band)):
+		for point in points_by_band[band_idx]:
+			if point < midpoints[band_idx]:
+				cur_distance = midpoints[band_idx] - point
+				max_distance = max(max_distance, cur_distance)
+				wrong_points += 1
+			if point >= midpoints[band_idx+1]:
+				cur_distance = point - midpoints[band_idx+1]
+				max_distance = max(max_distance, cur_distance)
+				wrong_points += 1
+
+	return wrong_points + max_distance / np.max(bands_concatenated)
+
+# Quick and dirty. There's probably something more mathematically
+# elegant to be had...
+def do_segmented_brute_force(pulses):
+	assignments = []
+	last_clustering = [22., 33., 44.]
+	# Start 60 points earlier so we can get the zero train before the
+	# actual preamble, too.
+	promising_starts = np.array(get_potential_preambles(pulses))-60
+
+	for i in range(len(promising_starts)):
+		print("Testing %d of %d, i.e. %.3f %%" %(i, len(promising_starts),
+			(i*100)/len(promising_starts)))
+		start_pos = promising_starts[i]
+		if i == len(promising_starts)-1:
+			end_pos = len(pulses)
+		else:
+			end_pos = promising_starts[i+1]
+
+		print("Interval: %d to %d (%d pulses)" % (start_pos, end_pos, end_pos-start_pos))
+
+		# Skip very short intervals
+		if end_pos - start_pos < 60:
+			cluster_guess = last_clustering
+		else:
+			cluster_guess, pll_alpha, error = brute_force_cluster_check(
+				pulses[start_pos:], window=end_pos-start_pos,
+				known_good=last_clustering)
+		# There should be at least one preamble struct here, so don't trust
+		# the clustering if it reports none
+		if error[0] != 0:
+			last_clustering = cluster_guess
+		print(last_clustering)
+		if pll_alpha > 0:
+			assignments += simplest_ever_pll(pulses[start_pos:end_pos],
+				last_clustering, pll_alpha)
+		else:
+			for j in range(start_pos, end_pos):
+				assignment = np.argmin(np.abs(pulses[j] - last_clustering))
+				assignments.append(assignment)
+
+	return assignments
+
+# Semi-bruting from a boundary.
+
+# Get appropriate cluster intervals. It returns three tuples or None if
+# it's impossible to assign clusters to tell the bands apart.
+
+# If it doesn't return None, then row k of the matrix gives the inclusive
+# interval that must be assigned to the kth band.
+def get_cluster_intervals(points_by_band):
+	band_intervals = np.array([[min(x), max(x)] for x in points_by_band])
+	for i in range(len(band_intervals)-1):
+		# If our max is greater than the next one's min, there's an
+		# overlap and no classification can possibly work.
+		if band_intervals[i][1] >= band_intervals[i+1][0]:
+			return None
+	return band_intervals
+
+def get_pruned_potential_preambles(pulses):
+	gpp = get_potential_preambles(pulses)
+	accepted_preambles = []
+
+	for preamble_pos in gpp:
+		points_by_band = categorize_extended_preamble(pulses, preamble_pos)
+		if get_cluster_intervals(points_by_band) is not None:
+			accepted_preambles.append(preamble_pos)
+
+	return accepted_preambles
+
+# Surprisingly efficient function: categorize every preamble, then
+# take the median of each category as the cluster center.
+
+def cluster_on_preambles(pulses, gpp=None, trim=None):
+	if gpp == None:
+		gpp = get_pruned_potential_preambles(pulses)
+
+	cats = [np.array([]) for x in range(3)]
+	for i in gpp:
+		cat = (categorize_extended_preamble(pulses, i))
+		for j in range(len(cats)):
+			cats[j] = np.concatenate([cats[j], cat[j]])
+
+	if trim is not None:
+		return ([trim_mean(x, trim) for x in cats])
+
+	return ([np.median(x) for x in cats])
+
+# Create a random cluster that assigns the intervals to the bands.
+def random_cluster(intervals):
+
+	# Let the three cluster points be x, y, z, and the min and max
+	# for the intervals be min_i, max_i, indexed from 1.
+
+	# Then x must be closer to max_1 than y is.
+	# y must be closer to min_2 than x is and must be closer to max_2 than z is.
+	# z must be closer to min_3 than y is.
+
+	# In other words:
+	# max_1 - x < y - max_1		==>		y > 2 * max_1 - x
+	# y - min_2 < min_2 - x		==>		y < 2 * min_2 - x
+	# max_2 - y < z - max_2		==>		z > 2 * max_2 - y
+	# z - min_3 < min_3 - y		==>		z < 2 * min_3 - y
+
+	eps = 1e-9
+
+	x = 3
+	y = 2
+	z = 1
+
+	while x >= y or y >= z:
+		x = np.random.uniform(0, intervals[0][1])
+		y = np.random.uniform(2 * intervals[0][1] - x + eps, 2 * intervals[1][0] - x)
+		z = np.random.uniform(2 * intervals[1][1] - y + eps, 2 * intervals[2][0] - y)
+
+	return np.array([x, y, z])
+
+# Simple way of sifting clusters that can't even recognize the
+# preamble. Uses intervals, and the constraints above.
+def can_cluster_work(intervals, candidate_cluster):
+	if candidate_cluster[0] > intervals[0][1]: return False
+	if candidate_cluster[1] < 2 * intervals[0][1] - candidate_cluster[0]: return False
+	if candidate_cluster[1] > 2 * intervals[1][0] - candidate_cluster[0]: return False
+	if candidate_cluster[2] < 2 * intervals[1][1] - candidate_cluster[1]: return False
+	if candidate_cluster[2] > 2 * intervals[2][0] - candidate_cluster[1]: return False
+
+	return True
+
+def semi_brute_cluster(pulses, partial_preamble_start, next_preamble_start, tries=250):
+	record_error = (np.inf, 0)
+	record_clusters = None
+	record_alpha = 0
+	alpha = 0
+	use_pll = False
+
+	points_by_band = categorize_extended_preamble(pulses, partial_preamble_start)
+	known_good = np.array(cluster_on_preambles(pulses))
+	if points_by_band is None:
+		return None
+
+	coverage_intervals = get_cluster_intervals(points_by_band)
+
+	for i in range(tries):
+		clusters = random_cluster(coverage_intervals)
+		#use_pll = np.random.choice([True, False])
+		use_pll = False
+		if use_pll:
+			alpha = np.random.uniform(0.01, np.sqrt(0.15))**2
+		else:
+			alpha = 0
+
+		errors = get_tentative_errors(pulses,
+			partial_preamble_start-additional_pulses_full_preamble(),
+			next_preamble_start, clusters, use_pll,
+			alpha)
+		tiebreak = (errors == record_error) and \
+			np.sum(np.abs(clusters - known_good)) < \
+			np.sum(np.abs(record_clusters - known_good))
+
+		if errors < record_error or tiebreak:
+			print(clusters, use_pll, errors)
+			record_error = errors
+			record_clusters = clusters
+			record_alpha = alpha
+
+	return record_clusters, record_alpha, record_error
+
+# I can't believe it's not a hack.
+# TODO: I really should do something about that -70...
+def semi_brute_per_sector(pulses, tries=500):
+	gpp = get_pruned_potential_preambles(pulses)
+	assignments = []
+	for i in range(len(gpp)-1):
+		print("Testing %d of %d, i.e. %.3f %%" %(i, len(gpp)-1,
+			(i*100)/(len(gpp)-1)))
+		clusters, alpha, error = semi_brute_cluster(
+			pulses, gpp[i], gpp[i+1], tries=tries)
+		# Cute hack where alpha=0 just does a regular assignment. Heh!
+		assignments += simplest_ever_pll(
+			pulses[gpp[i]-additional_pulses_full_preamble():\
+				gpp[i+1]-additional_pulses_full_preamble()],
+			clusters, alpha)
+	return assignments
+
+# Given some pulses and pruned preambles-clusterings, determine which
+# decode without errors.
+# pruned preamble-clusterings is a list of pairs of pruned preambles and
+# clusterings to use for that location to the next, or None if unknown.
+# The function determines for which of the Nones the current clustering
+# is appropriate, and then replaces the None thus, returning the copy
+# that has been such augmented.
+# Something is wrong here... it's being a lot more picky than
+# decode_from_assignments is.
+def get_chunks_without_errors(pulses, preambles_clusterings,
+	clustering, dynamic_clustering = False):
+
+	if (clustering is not None) and len(clustering) < 3:
+		raise Exception("Invalid clustering provided")
+
+	out_preambles = np.copy(preambles_clusterings)
+	correct, seen = 0, 0
+
+	seen_clusters = []
+	coverage_intervals = []
+
+	# Generate intervals for early screening.
+	for i in range(len(preambles_clusterings)):
+		points_by_band = categorize_extended_preamble(pulses, preambles_clusterings[i][0])
+		coverage_intervals.append(get_cluster_intervals(points_by_band))
+
+	for i in range(len(preambles_clusterings)):
+		# already classified
+		if preambles_clusterings[i][1] is not None:
+			continue
+
+		seen += 1
+
+		if not (dynamic_clustering or can_cluster_work(coverage_intervals[i], clustering)):
+			continue
+
+		start_pos = preambles_clusterings[i][0] - additional_pulses_full_preamble()
+		if i == len(preambles_clusterings)-1:
+			end_pos = len(pulses)
+		else:
+			end_pos = preambles_clusterings[i+1][0] - additional_pulses_full_preamble()
+
+		this_clustering = clustering
+
+		if dynamic_clustering:
+			this_clustering = cluster_on_preambles(pulses,
+				[preambles_clusterings[i][0]])
+
+		structs, errors, bitsum = get_tentative_errors(pulses,
+			start_pos, end_pos, this_clustering)
+
+		# We would expect 3 errors due to the intentional preamble errors.
+		if errors == 0 and structs <= -1:
+			out_preambles[i][1] = clustering
+			print("Preamble %d/%d (%d) classified as without error" % (i, len(preambles_clusterings), preambles_clusterings[i][0]))
+			if dynamic_clustering:
+				seen_clusters.append(this_clustering)
+			correct += 1
+
+	print("Classified %d/%d(%.2f%%) without error" % (correct, seen, correct*100/seen))
+
+	# https://stackoverflow.com/questions/3724551
+	if dynamic_clustering:
+		seen_clusters = [list(x) for x in set(tuple(x) for x in seen_clusters)]
+		print("Seen dynamic clusters", seen_clusters)
+
+	return out_preambles, seen_clusters
+
+def assign_on_preambles_clusterings(pulses, preambles_clusterings,
+	default_clustering):
+
+	end_pos = preambles_clusterings[0][0]# - additional_pulses_full_preamble()
+	assignments = assign(pulses[:end_pos], default_clustering)
+	clustering = default_clustering
+
+	for i in range(len(preambles_clusterings)):
+		start_pos = preambles_clusterings[i][0] - additional_pulses_full_preamble()
+		if i == len(preambles_clusterings)-1:
+			end_pos = len(pulses)
+		else:
+			end_pos = preambles_clusterings[i+1][0] - additional_pulses_full_preamble()
+
+		#clustering = preambles_clusterings[i][1]
+		#if clustering is None:
+		#	clustering = default_clustering
+		if preambles_clusterings[i][1] is not None:
+			clustering = preambles_clusterings[i][1]
+
+		assignments += assign(pulses[start_pos:end_pos], clustering)
+
+	return assignments
+
+def assign_clusters_to_preambles(pulses, brute_force=False):
+	preambles = get_pruned_potential_preambles(pulses)
+	preambles_clusterings = [[x, None] for x in preambles]
+	spotted_clusters = []
+
+	print("ACTP: Trimmed mean")
+	# First try the 0.25 trimmed mean.
+	dc = np.array(cluster_on_preambles(pulses, trim=0.25))
+	preambles_clusterings, spotted_clusters = get_chunks_without_errors(
+		pulses, preambles_clusterings, dc)
+
+	print("ACTP: Median")
+	# Then try the median
+	dc = np.array(cluster_on_preambles(pulses))
+	preambles_clusterings, spotted_clusters = get_chunks_without_errors(
+		pulses, preambles_clusterings, dc)
+
+	print("ACTP: k-medians")
+	# Then try k-medians
+	dc = kmedian.wt_optimal_k_median(pulses, 3)
+	preambles_clusterings, spotted_clusters = get_chunks_without_errors(
+		pulses, preambles_clusterings, dc)
+
+	print("ACTP: Dynamic discovery")
+	# Then dynamic discovery.
+	preambles_clusterings, spotted_clusters = get_chunks_without_errors(
+		pulses, preambles_clusterings, None, True)
+	for i in spotted_clusters:
+		preambles_clusterings, x = get_chunks_without_errors(
+			pulses, preambles_clusterings, i)
+
+	if not brute_force:
+		return preambles_clusterings
+
+	print("ACTP: Brute force")
+	# Then brute force.
+	for i in range(len(preambles_clusterings)-1):
+		print("\t%d of %d (%.2f%%)" % (i, len(preambles_clusterings)-1,
+			100*i/(len(preambles_clusterings)-1)))
+
+		if preambles_clusterings[i][1] is not None:
+			continue
+
+		start_pos = preambles_clusterings[i][0] - additional_pulses_full_preamble()
+		end_pos = preambles_clusterings[i+1][0] - additional_pulses_full_preamble()
+
+		record_clusters, record_alpha, record_error = \
+			semi_brute_cluster(pulses,preambles_clusterings[i][0], preambles_clusterings[i+1][0])
+		print("Output", record_clusters, record_alpha, record_error)
+		if record_error[0] < 0 and record_error[1] == 0:
+			print("Maybe something here")
+			preambles_clusterings, x = get_chunks_without_errors(
+				pulses, preambles_clusterings, record_clusters)
+
+	return preambles_clusterings
+
+def debug_assn_problems(pulses, preambles_clusterings, default_clustering,
+	min_pos, max_pos):
+
+	start_pos = preambles_clusterings[min_pos][0]
+	end_pos = preambles_clusterings[max_pos+1][0]
+
+	gpp_short = preambles_clusterings[min_pos:max_pos]
+	pulses_short = pulses[start_pos:end_pos]
+
+	direct_assignment = assign(pulses_short, default_clustering)
+	indirect_assignment = assign_on_preambles_clusterings(pulses_short,
+		gpp_short, default_clustering)
+
+	# Indirect assignment should always be better, but isn't for some
+	# reason...
+	direct_stats = get_invalid_chunk_stats(decode_from_assignments(direct_assignment))
+	indirect_stats = get_invalid_chunk_stats(decode_from_assignments(indirect_assignment))
+
+	print_stats(decode_from_assignments(direct_assignment))
+	print_stats(decode_from_assignments(indirect_assignment))
+
+	print("Detected chunks, direct:", direct_stats[0]+direct_stats[1])
+	print("Detected chunks, indirect:", indirect_stats[0]+indirect_stats[1])
+
+def print_stats(decoded_structure):
+	invstat = get_invalid_chunk_stats(decoded_structure)
+	categorized, categorized_valid = categorize_decoded(decoded_structure)
+
+	try:
+		print("\t\tValid CRC chunks: %d\tInvalid: %d\tFraction valid: %.3f" %
+			(invstat[0], invstat[1], invstat[0]/(invstat[0]+invstat[1])))
+		good_sector_keys = set(categorized_valid.keys())
+		print("\t\tNumber of sectors: %d\tGood sectors: %d" % (len(categorized.keys()), len(good_sector_keys)))
+	except ZeroDivisionError:
+		print("\t\tNo chunks found, neither valid nor invalid.")
+
+def decode_from_assignments(assignments, datalen=0):
+	MFM, MFM_pos = assignments_to_MFM_code(assignments)
+	struct_starts = get_struct_starts(assignments, MFM, MFM_pos)
+	decoded = decode_all_from_MFM(assignments, MFM, MFM_pos,
+		struct_starts, datalen=datalen)
+
+	return decoded
+
 def demonstrate(au_name, show_plot=False, global_clusters=None):
 	pulses = get_pulse_deltas(au_name)
 	assign_wo_dewarp, pulses_copy = get_assignments(pulses, correct_warping=False,
 		global_clusters=global_clusters)
-	assign_with_dewarp, dewarped_pulses = get_assignments(pulses, correct_warping=True,
-		global_clusters=global_clusters)
+	#assign_with_dewarp, dewarped_pulses = get_assignments(pulses, correct_warping=True,
+	#	global_clusters=global_clusters)
 
-	if show_plot:
-		scatter_plot(pulses, 30000, step=5)
-		scatter_plot(dewarped_pulses, 30000, step=7)
+	assign_with_dewarp = shifted_window_pll(pulses, 100, len(pulses)-100, global_clusters)
+
+	#if show_plot:
+	#	scatter_plot(pulses, 30000, step=5)
+	#	scatter_plot(dewarped_pulses, 30000, step=7)
 
 	# Without dewarping
-	without_MFM, without_MFM_pos = assignments_to_MFM_code(assign_wo_dewarp)
-	without_struct_starts = get_struct_starts(assign_wo_dewarp, without_MFM,
-		without_MFM_pos)
-	without_decoded = decode_all_from_MFM(assign_wo_dewarp, without_MFM,
-		without_MFM_pos, without_struct_starts)
+	without_decoded = decode_from_assignments(assign_wo_dewarp)
 	without_cat, without_cat_valid = categorize_decoded(without_decoded)
 
 	# With dewarping
-	dewarp_MFM, dewarp_MFM_pos = assignments_to_MFM_code(assign_with_dewarp)
-	dewarp_struct_starts = get_struct_starts(assign_with_dewarp, dewarp_MFM,
-		dewarp_MFM_pos)
-	dewarp_decoded = decode_all_from_MFM(assign_with_dewarp, dewarp_MFM,
-		dewarp_MFM_pos, dewarp_struct_starts)
+	dewarp_decoded = decode_from_assignments(assign_with_dewarp)
 	dewarp_cat, dewarp_cat_valid = categorize_decoded(dewarp_decoded)
+
+	# Together
+	concert_decoded = without_decoded + dewarp_decoded
 
 	print("Stats: ")
 	print("\tWithout dewarping:")
-	invstat = get_invalid_chunk_stats(without_decoded)
-	print("\t\tValid CRC chunks: %d\tInvalid: %d\tFraction valid: %.3f" %
-		(invstat[0], invstat[1], invstat[0]/(invstat[0]+invstat[1])))
-	bad_sector_keys = set(without_cat.keys()) - set(without_cat_valid.keys())
-	print("\t\tNumber of sectors: %d\tBad sectors: %d" % (len(without_cat.keys()), len(bad_sector_keys)))
+	print_stats(without_decoded)
 	print("")
 	print("\tWith dewarping:")
-	invstat = get_invalid_chunk_stats(dewarp_decoded)
-	print("\t\tValid CRC chunks: %d\tInvalid: %d\tFraction valid: %.3f" %
-		(invstat[0], invstat[1], invstat[0]/(invstat[0]+invstat[1])))
-	bad_sector_keys = set(dewarp_cat.keys()) - set(dewarp_cat_valid.keys())
-	print("\t\tNumber of sectors: %d\tBad sectors: %d" % (len(dewarp_cat.keys()), len(bad_sector_keys)))
+	print_stats(dewarp_decoded)
+	print("")
+	print("\tAuxiliary info (both combined):")
+	print_stats(concert_decoded)
 
 def time_weighted(pulses):
 	print("Timing k-median calculations... This might take a while.")
