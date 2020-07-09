@@ -152,8 +152,6 @@ def optimal_k_center(points, num_clusters, radius_in):
 	pts_cumulative = get_cdf(pts_sorted)
 	pts_len = len(pts_sorted)
 
-	print(pts_len)
-
 	# Ugly hack since I can't yet be bothered to thread the radius
 	# parameter through all the functions needed... Fix later!
 	global radius
@@ -190,7 +188,6 @@ def optimal_k_center(points, num_clusters, radius_in):
 	num_dropped = D[num_clusters][cur_clustering_range][1]
 
 	for i in range(num_clusters, 0, -1):
-		print(i)
 		cluster_boundaries.append(T[i][cur_clustering_range])
 		new_cluster_range = T[i][cur_clustering_range]
 		center, maxval, dropped_points = find_optimal_center(pts_sorted,
@@ -382,9 +379,7 @@ def wt_C_i(weighted_cdf, i, D_previous, m, j):
 
 # for the floppy images, 2 is a good choice for radius. 1 is too little,
 # but even something like 10 will work.
-def wt_optimal_k_center(points, num_clusters, radius_in, wt_pts_cumulative=None):
-	if wt_pts_cumulative is None:
-		wt_pts_cumulative = wt_get_prefix_sum(points)
+def wt_optimal_k_center_from_cumul(wt_pts_cumulative, num_clusters, radius_in):
 
 	unique_points = len(wt_pts_cumulative)
 
@@ -435,6 +430,10 @@ def wt_optimal_k_center(points, num_clusters, radius_in, wt_pts_cumulative=None)
 		cur_clustering_range = new_cluster_range
 
 	return np.array(sorted(centers)), num_dropped
+
+def wt_optimal_k_center(points, num_clusters, radius_in):
+	return wt_optimal_k_center_from_cumul(wt_get_prefix_sum(points),
+		num_clusters, radius_in)
 
 def wt_debug(points, wt_pts_cumulative=None):
 	if wt_pts_cumulative is None:

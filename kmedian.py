@@ -92,8 +92,6 @@ def optimal_k_median(points, num_clusters):
 	pts_cumulative = get_cdf(pts_sorted)
 	pts_len = len(pts_sorted)
 
-	print(pts_len)
-
 	T, D = [[]], [[]]
 
 	for i in range(1, num_clusters+1):
@@ -106,8 +104,6 @@ def optimal_k_median(points, num_clusters):
 
 		Tout = np.array([0] * (pts_len+1))
 		Dout = np.array([0.0] * (pts_len+1))
-
-		print(len(Tout))
 
 		monotone_matrix_indices(M, i, pts_len+1, i-1, pts_len+1, Tout, Dout)
 
@@ -269,8 +265,7 @@ def wt_C_i(weighted_cdf, i, D_previous, m, j):
 	else:
 		return D_previous[min(j, m)] + wt_CC(weighted_cdf, j, m)
 
-def wt_optimal_k_median(points, num_clusters):
-	wt_pts_cumulative = wt_get_prefix_sum(points)
+def wt_optimal_k_median_from_cumul(wt_pts_cumulative, num_clusters):
 	unique_points = len(wt_pts_cumulative)
 
 	T, D = [[]], [[]]
@@ -313,6 +308,10 @@ def wt_optimal_k_median(points, num_clusters):
 		cur_clustering_range = new_cluster_range
 
 	return np.array(sorted(centers))
+
+def wt_optimal_k_median(points, num_clusters):
+	return wt_optimal_k_median_from_cumul(wt_get_prefix_sum(points),
+		num_clusters)
 
 # Assign each point to the cluster closest to it. Returns the assignment
 # of points to clusters, as well as the residuals (signed distances).
