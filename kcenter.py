@@ -127,13 +127,20 @@ def C_i(x, px, i, D_previous, m, j):
 # algorithm. Algorithmica, 1987, 2.1-4: 195-208.
 def monotone_matrix_indices(M, min_row, max_row, min_col, max_col,
 	Tout, Dout):
-	if max_row == min_row: return
+	if max_row <= min_row: return
+
+	# PERF: Only runs M() once per test, thus speeding up the process
+	# by a factor of two.
+	def M_combined_score(m, j):
+		out = M(m, j)
+		return out[0] + 1e-3 * out[1]
 
 	cur_row = int(min_row + np.floor((max_row-min_row)/2.0))
 
 	# Find the minimum column for this row.
-	min_here = min_col + np.argmin([(M(cur_row, j)[0] + 1e-3 * M(cur_row, j)[1]) for j in \
-			range(min_col, max_col+1)])
+	# PERF: Improve performance by noting that j > m is redundant.
+	min_here = min_col + np.argmin([(M_combined_score(cur_row, j)) for j in \
+			range(min_col, min(max_col, cur_row)+1)])
 
 	if Tout[cur_row] != 0:
 		raise Exception("tried to set a variable already set.")
@@ -331,7 +338,7 @@ def wt_find_optimal_center(weighted_cdf, i, j):
 def wt_CC(weighted_cdf, i, j):
 	if i >= j: return (0,0)
 
-	# Before we go about calculating medians, determine if any points
+	# Before we go about calculating centers, determine if any points
 	# will be dropped. If so, just go directly to the function that
 	# determines which those are.
 

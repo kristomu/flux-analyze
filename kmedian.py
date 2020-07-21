@@ -1,5 +1,6 @@
 import numpy as np
 import sortedcontainers as sc
+from low_level import get_residual_abs_sum
 
 # Implement a k * n log n method for optimal 1D K-median.
 # The K-median problem consists of finding k clusters so that the
@@ -67,13 +68,14 @@ def C_i(x, px, i, D_previous, m, j):
 # algorithm. Algorithmica, 1987, 2.1-4: 195-208.
 def monotone_matrix_indices(M, min_row, max_row, min_col, max_col,
 	Tout, Dout):
-	if max_row == min_row: return
+	if max_row <= min_row: return
 
 	cur_row = int(min_row + np.floor((max_row-min_row)/2.0))
 
 	# Find the minimum column for this row.
+	# PERF: Improve performance by noting that j > m is redundant.
 	min_here = min_col + np.argmin([M(cur_row, j) for j in \
-			range(min_col, max_col+1)])
+			range(min_col, min(max_col, cur_row)+1)])
 
 	if Tout[cur_row] != 0:
 		raise Exception("tried to set a variable already set.")
@@ -313,31 +315,26 @@ def wt_optimal_k_median(points, num_clusters):
 	return wt_optimal_k_median_from_cumul(wt_get_prefix_sum(points),
 		num_clusters)
 
-# Assign each point to the cluster closest to it. Returns the assignment
-# of points to clusters, as well as the residuals (signed distances).
-# Works with local clusters if cluster_pts is the transpose of the local
-# clusters list (as a matrix); see assign_to_local_clusters.
-# TODO? "Soft assignments" indicating how far the point is from the next
-# closest cluster, or from some reasonable distance -- to detect dropped
-# flux reversals in the case of very long delays (e.g. 80 most likely two
-# 40 pulses with one of them having been lost by magnetic decay).
-def assign_to_clusters(pulse_deltas, cluster_pts):
-	# First assign everything to cluster 0.
-	residuals = pulse_deltas - cluster_pts[0]
-	assignment = np.array([0]*pulse_deltas)
+# TODO? wt_optimal_k_median with given intervals.
+# If the intervals are (x_0, y_0) ... (x_k, y_k), then the first cluster
+# must range up to somewhere between y_0 and x_1, the second cluster must
+# go from wherever the first one ended up to somewhere between y_1 and x_2,
+# and so on.
+# Here's a reasonable test, but I couldn't get the actual thing to work.
 
-	# Then assign to other clusters.
-	for i in range(1, len(cluster_pts)):
-		residuals_this = pulse_deltas - cluster_pts[i]
-		assignment[np.abs(residuals_this) < np.abs(residuals)] = i
-		residuals[np.abs(residuals_this) < np.abs(residuals)] = \
-			residuals_this[np.abs(residuals_this) < np.abs(residuals)]
+# If I'm to do it, I'll probably have to start with the O(kn^2) naive
+# algorithm and work my way up. Furthermore, even finding the centerpoint
+# to preserve the intervals is difficult!
 
-	return assignment, residuals
+def test_interval_clustering():
+	x = np.array([0, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 5, 5, 5, 5, 5, 5, 6,
+		7, 9, 10, 20, 30, 40, 50, 60])
+	interval = [[0, 8], [12, 25], [30, 60]]
 
-def sum_distances(pulse_deltas, cluster_pts):
-	assignment, residuals = assign_to_clusters(pulse_deltas, cluster_pts)
-	return np.sum(np.abs(residuals))
+	print("Ordinary k-median")
+	print(wt_optimal_k_median(x, 3))
+	#print("With intervals")
+	#print(wt_optimal_k_median_intervals(x, interval))
 
 # Adaptive k-median (dewarping).
 
@@ -443,8 +440,8 @@ def local_k_median(pts, start_center=0, window_size=301, test_interval=801,
 		if test_counter >= test_interval:
 			test_counter = 0
 			current_section = pts[(i - left_of_center):(i + right_of_center + 1)]
-			if sum_distances(current_section, global_clusters) < \
-				sum_distances(current_section, local_clusters):
+			if get_residual_abs_sum(current_section, global_clusters) < \
+				get_residual_abs_sum(current_section, local_clusters):
 				local_clusters = global_clusters
 
 		# If the point we're to remove is the same as the point we're
@@ -509,10 +506,6 @@ def local_k_median(pts, start_center=0, window_size=301, test_interval=801,
 		local_clusters_per_point.append(local_clusters)
 
 	return np.array(local_clusters_per_point)
-
-# The same, but with dynamic clusters as returned by local_k_median.
-def assign_to_local_clusters(pulse_deltas, local_clusters_per_point):
-	return assign_to_clusters(pulse_deltas, local_clusters_per_point.T)
 
 # Returns a corrected pulse delay list given assignments and distances,
 # i.e. what it would be like with absolutely no variation in local
