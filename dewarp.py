@@ -25,15 +25,15 @@
 import numpy as np
 from collections import deque
 
-def simplest_ever_pll(pulses, clustering, alpha=0.05):
+def simplest_ever_pll(pulses, start_pos, end_pos, clustering, alpha=0.05):
 	assignments = []
 
 	# https://www.me.utexas.edu/~jensen/ORMM/omie/operation/unit/forecast/exp.html
 	lag = int((1-alpha)/alpha)
 
-	for i in range(len(pulses)):
-		assignment = np.argmin(np.abs(pulses[i] - clustering))
-		residual = pulses[i] - clustering[assignment]
+	for i in range(end_pos-start_pos):
+		assignment = np.argmin(np.abs(pulses[start_pos+i] - clustering))
+		residual = pulses[start_pos+i] - clustering[assignment]
 
 		# Relative residual
 		rel_residual = residual / clustering[assignment]
@@ -42,11 +42,11 @@ def simplest_ever_pll(pulses, clustering, alpha=0.05):
 		clustering = clustering + clustering * rel_residual * alpha
 
 		if i >= lag:
-			assignment_earlier = np.argmin(np.abs(pulses[i-lag] - clustering))
+			assignment_earlier = np.argmin(np.abs(pulses[start_pos+i-lag] - clustering))
 			assignments.append(assignment_earlier)
 
-	for i in range(len(pulses)-lag, len(pulses)):
-		assignment = np.argmin(np.abs(pulses[i] - clustering))
+	for i in range(end_pos-start_pos-lag, end_pos-start_pos):
+		assignment = np.argmin(np.abs(pulses[start_pos+i] - clustering))
 		assignments.append(assignment)
 
 	return assignments

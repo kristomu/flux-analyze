@@ -65,11 +65,11 @@ def scatter_plot(pulse_deltas, len, start=0, step=1):
 radius_test_order = []
 
 def kcenter_semi_brute(pulse_deltas, chunk_pos_preamble, pulse_len,
-	data_length):
+	data_length, assignment_function=low_level.assign_partial):
 
 	global radius_test_order
 
-	min_radius, max_radius = 1, 10
+	min_radius, max_radius = 1, 8
 	start_pos = chunk_pos_preamble[0]
 
 	band_intervals = get_band_intervals(classify_bands(
@@ -79,21 +79,29 @@ def kcenter_semi_brute(pulse_deltas, chunk_pos_preamble, pulse_len,
 	candidate_clusterings = []
 	with_previous_best_radius = None
 
+	# -1 means "use k-median".
 	if radius_test_order == []:
-		radius_test_order = list(range(min_radius, max_radius+1))
+		radius_test_order = [-1] + list(range(min_radius, max_radius+1))
 
-	# Try k-center, looking for an approach that gives zero errors.
+	# Try k-center or k-median, looking for an approach that gives zero
+	# errors.
 	for radius_idx in range(len(radius_test_order)):
-		clustering = kcenter.wt_optimal_k_center(
-			pulse_deltas[start_pos:start_pos+pulse_len],
-			len(band_intervals), radius_test_order[radius_idx])[0]
+		if radius_test_order[radius_idx] == -1:
+			clustering = kmedian.wt_optimal_k_median(
+				pulse_deltas[start_pos:start_pos+pulse_len],
+				len(band_intervals))
+		else:
+			clustering = kcenter.wt_optimal_k_center(
+				pulse_deltas[start_pos:start_pos+pulse_len],
+				len(band_intervals), radius_test_order[radius_idx])[0]
 
 		if not valid_clustering(band_intervals, clustering):
 			continue
 
 		try:
 			next_struct = decode_chunk(pulse_deltas, chunk_pos_preamble,
-				pulse_len, data_length, override_clustering=clustering)
+				pulse_len, data_length, override_clustering=clustering,
+				assignment_function=assignment_function)
 			if next_struct["_num_errors"] == 0:
 				# That particular radius worked. Move it to the front of
 				# the list so that it can be tested earlier next time around.
@@ -137,10 +145,10 @@ def decode_all(pulse_deltas, data_length=0):
 
 			if next_struct["_num_errors"] > 0:
 				given_length = next_struct["_end_pos"] - next_struct["_start_pos"]
-				# The +10 to length is here because errors may make a structure
+				# The +30 to length is here because errors may make a structure
 				# seem a little shorter or longer than it really is.
 				corrected_next_struct =  kcenter_semi_brute(pulse_deltas,
-					preamble_pos_clusters[i], given_length + 10,
+					preamble_pos_clusters[i], given_length + 30,
 					data_length)
 
 				if corrected_next_struct is not None:
@@ -165,6 +173,14 @@ def decode_all(pulse_deltas, data_length=0):
 			decoded_structures.append(next_struct)
 		except KeyError:
 			print("Could not distinguish the floppy chunk header!")
+			# Insert a placeholder structure so that later bruting
+			# can fix it, if possible.
+			placeholder = {}
+			placeholder["header"] = "Unknown"
+			placeholder["CRC_OK"] = False
+			placeholder["_start_pos"] = start_pos
+			placeholder["_end_pos"] = end_upper_bound
+			decoded_structures.append(placeholder)
 			pass
 		except IndexError:
 			if data_length == 0:
@@ -173,6 +189,169 @@ def decode_all(pulse_deltas, data_length=0):
 				pass
 
 	return decoded_structures
+
+# EXPERIMENTAL
+# Known bugs: VIGOR (low_level_format_with_noise.flux) produces a :-X error
+# which should never happen (because that signals no struct was found at all,
+# but since augmented_full_brute only improves positions that are known
+# to hold structs, it should always find at least a corrupted struct there.)
+
+# USAGE:
+# pulses = get_pulse_deltas(...)
+# decoded = decode_all(pulses)
+# augmented_decoded = augment_full_brute(pulses, decoded, 512) #assuming 512-byte data chunks.
+
+def full_brute(pulse_deltas, chunk_pos_preamble, end_upper_bound,
+	data_length=0):
+
+	preamble_pos, clustering, preamble, short_preamble = chunk_pos_preamble
+
+	classified_points = low_level.classify_bands(pulse_deltas, preamble_pos,
+		low_level.encode_to_assignment(preamble), len(clustering))
+
+	band_intervals = low_level.get_band_intervals(classified_points)
+
+	almost_all_bands = get_all_bands(pulse_deltas[preamble_pos:end_upper_bound],
+		band_intervals, 100)
+
+	error_record, recordholder, recordholder_alpha = np.inf, [], 0
+	record_struct = None
+
+	for i in range(len(almost_all_bands)):
+		if error_record == 0 and "CRC_OK" in record_struct and record_struct["CRC_OK"]:
+			continue
+
+		clustering = low_level.band_intervals_to_clusters(np.array(almost_all_bands[i]))
+		alpha = 0
+		use_alpha = False
+		#alpha = 0.02 + np.sqrt(np.random.uniform(0, 0.20**2))
+		#use_alpha = True
+
+		if use_alpha:
+			assn = lambda a, b, c, d: dewarp.simplest_ever_pll(a, b, c, d, alpha)
+		else:
+			alpha = 0
+			assn = assign_partial
+
+		try:
+			next_struct = decode_chunk(pulse_deltas, chunk_pos_preamble,
+					end_upper_bound-preamble_pos, data_length,
+					override_clustering=clustering,
+					assignment_function=assn)
+
+			# Permit checking of CRC for the first 50 or so tests.
+			# In general, we should never check for CRC validity
+			# because each check produces a slight possibility of a
+			# false positive, and we can't tell those apart.
+			# But as long as we only do it for a very small number,
+			# it *should* be okay...
+			override = next_struct["_num_errors"] == 0 \
+			 	and "CRC_OK" in next_struct \
+			 	and next_struct["CRC_OK"] and i < 50
+
+			if next_struct["_num_errors"] < error_record or override:
+				error_record = next_struct["_num_errors"]
+				recordholder = clustering
+				recordholder_alpha = alpha
+				record_struct = next_struct
+				print("\t", i, ":", error_record, recordholder, recordholder_alpha)
+		except IndexError:
+			pass
+		except KeyError:
+			pass
+
+	return record_struct
+
+def augment_full_brute(pulse_deltas, decoded_so_far, data_length=0):
+	preamble_pos_clusters = get_preamble_positions_clusters(pulse_deltas)
+	augmented_decoded = []
+
+	for i in range(len(decoded_so_far)):
+		if decoded_so_far[i]["_num_errors"] == 0:
+			augmented_decoded.append(decoded_so_far[i])
+			continue
+
+		start_pos = preamble_pos_clusters[i][0]
+		if i == len(preamble_pos_clusters)-1:
+			end_upper_bound = len(pulse_deltas)
+		else:
+			end_upper_bound = preamble_pos_clusters[i+1][0]
+
+		print ("Bruting %d/%d: pos %d ... %d\t" % (i,
+			len(preamble_pos_clusters), start_pos, end_upper_bound))
+
+		possible_improved_struct = full_brute(pulse_deltas,
+			preamble_pos_clusters[i], end_upper_bound+40, data_length)
+
+		if possible_improved_struct is None:
+			print(":-X could not find a single struct. This should never happen and indicates a bug, but continuing anyway...")
+			augmented_decoded.append(decoded_so_far[i])
+			continue
+
+		if possible_improved_struct["_num_errors"] < decoded_so_far[i]["_num_errors"]:
+			if possible_improved_struct["_num_errors"] == 0 and possible_improved_struct["CRC_OK"]:
+				print(":-) fixed")
+			else:
+				print(":-/ reduced errors to", possible_improved_struct["_num_errors"])
+			augmented_decoded.append(possible_improved_struct)
+		else:
+			print(":-( no improvement to error count")
+			augmented_decoded.append(decoded_so_far[i])
+
+	return augmented_decoded
+
+# Additional code for the exhaustive band enumeration strategy follows.
+# TODO? Make it a dynamic programming algorithm to speed up matters,
+# filtering away anything that can produce an error as we go.
+
+# Also don't judge the strategy by its speed as implemented in Python.
+# I haven't optimized the algorithms: get_all_bands in particular is very
+# slow as it is.
+
+# Returns a tuple giving the bands this point might belong to.
+def get_band(point_value, intervals):
+	for i in range(len(intervals)):
+		if point_value >= intervals[i][0] and point_value <= intervals[i][1]:
+			return (i,)
+
+	if point_value < intervals[0][0]:
+		return (0,)
+
+	for i in range(1, len(intervals)):
+		if point_value > intervals[i-1][1] and point_value < intervals[i][0]:
+			return(i-1, i)
+
+	return (len(intervals)-1,)
+
+# Outputs every possible different set of band intervals that the
+# pulse data can be classified into, for semi-brute force purposes.
+# If max_num is set to a finite value, it will abort early if the list
+# is that full.
+def get_all_bands(pulses, intervals, max_num=np.inf):
+	candidate_configurations = set([tuple(map(tuple, intervals))])
+	candidate_configurations_next = set()
+
+	for i in range(len(pulses)):
+		if len(candidate_configurations) > max_num:
+			return list(candidate_configurations)
+
+		delay = pulses[i]
+		for interval_in in candidate_configurations:
+			interval = np.array(interval_in)
+			band_classification = get_band(delay, interval_in)
+
+			for band in band_classification:
+				interval = np.array(interval_in)
+				interval[band][0] = min(interval[band][0], delay)
+				interval[band][1] = max(interval[band][1], delay)
+				candidate_configurations_next.add(tuple(map(tuple, interval)))
+
+		candidate_configurations, candidate_configurations_next = \
+			candidate_configurations_next, set()
+
+	return list(candidate_configurations)
+
+# END of experiment.
 
 # The coverage level tends to be around 90% for uncorrupted IBM MFM
 # floppies with 512-byte sectors.
@@ -675,22 +854,30 @@ def print_stats(decoded_structure):
 	except ZeroDivisionError:
 		print("\t\tNo chunks found, neither valid nor invalid.")
 
-def decode_from_assignments(assignments, datalen=0):
-	MFM, MFM_pos = assignments_to_MFM_code(assignments)
-	struct_starts = get_struct_starts(assignments, MFM, MFM_pos)
-	decoded = decode_all_from_MFM(assignments, MFM, MFM_pos,
-		struct_starts, datalen=datalen)
+def get_datalen(decoded):
+	for chunk in decoded:
+		if chunk["header"] == "IDAM":
+			return chunk["datalen"]
 
-	return decoded
+	return None
 
 def demonstrate(au_name):
 	pulses = get_pulse_deltas(au_name)
 	decoded = decode_all(pulses)
+	augmented_decoded = augment_full_brute(pulses, decoded, 
+		get_datalen(decoded))
 
+	print("Without brute-forcing:")
 	print_stats(decoded)
 	if len(decoded) > 0:
 		print("\n\t\t%d%% of the floppy data was decoded." %
 			(100*get_coverage(pulses, decoded)))
+
+	print("With brute-forcing (no dewarping):")
+	print_stats(augmented_decoded)
+	if len(augmented_decoded) > 0:
+		print("\n\t\t%d%% of the floppy data was decoded." %
+			(100*get_coverage(pulses, augmented_decoded)))
 
 # hist_cat, hist_cat_valid = categorize_decoded(hist_decoded)
 

@@ -141,14 +141,14 @@ def get_preamble_positions_clusters(pulses):
 # function. pulse_len is an upper bound of how long (in pulse delays) this
 # particular chunk is. (More sophisticated ways of doing this, later).
 def decode_chunk(pulses, chunk_pos_preamble, pulse_len, last_datalen,
-	override_clustering = None):
+	override_clustering = None, assignment_function=low_level.assign_partial):
 
 	preamble_pos, clustering, preamble, short_preamble = chunk_pos_preamble
 
 	if override_clustering is not None:
 		clustering = override_clustering
 
-	assignments = low_level.assign_partial(
+	assignments = assignment_function(
 		pulses, preamble_pos, preamble_pos+pulse_len, clustering)
 
 	# Positions map flux positions to pulse positions
@@ -231,9 +231,11 @@ def decode_chunk(pulses, chunk_pos_preamble, pulse_len, last_datalen,
 # it is, then get the length of the struct, then read off the
 # appropriate number of bits. May not be necessary at the moment...
 def MFM_decode_from_flux_stream(flux_stream, max_length=np.inf):
-	outbits = []
-	error = []
-	flux_pos = []
+	num_bits = min(max_length, len(flux_stream))//2
+
+	outbits = np.array([-1]*num_bits)
+	error = np.array([-1]*num_bits)
+	flux_pos = np.array([-1]*num_bits)
 
 	# This means "I don't know what the last bit was."
 	last_bit = None
@@ -248,31 +250,31 @@ def MFM_decode_from_flux_stream(flux_stream, max_length=np.inf):
 		next_pair = [flux_stream[i], flux_stream[i+1]]
 
 		if next_pair == [0, 1]:
-			outbits.append(1)
-			error.append(-i)
+			outbits[i//2] = 1
+			error[i//2] = -i
 
 		if next_pair == [1, 0]:
-			outbits.append(0)
+			outbits[i//2] = 0
 			if last_bit is not None and last_bit != 0:
-				error.append(i)
+				error[i//2] = i
 			else:
-				error.append(-i)
+				error[i//2] = -i
 
 		if next_pair == [0, 0]:
-			outbits.append(0)
+			outbits[i//2] = 0
 			if last_bit is not None and last_bit != 1:
-				error.append(i)
+				error[i//2] = i
 			else:
-				error.append(-i)
+				error[i//2] = -i
 
-		flux_pos.append(i)
+		flux_pos[i//2] = i
 
 		if next_pair == [1, 1]:
 			raise Exception("Hard violation of clock constraint. Aborting.")
 
-		last_bit = outbits[-1]
+		last_bit = outbits[i//2]
 
-	return np.array(outbits), np.array(error), np.array(flux_pos)
+	return outbits, error, flux_pos
 
 # https://stackoverflow.com/questions/28370991
 def getbytes(bits):
