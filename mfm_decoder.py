@@ -8,6 +8,7 @@ import kcenter
 import re
 
 import mfm, low_level
+import approx_search
 from low_level import get_pulse_deltas
 
 # USAGE: Create the AU file with
@@ -147,13 +148,13 @@ def decode_all(pulse_deltas, data_length=0):
 				given_length = next_struct["_end_pos"] - next_struct["_start_pos"]
 				# The +30 to length is here because errors may make a structure
 				# seem a little shorter or longer than it really is.
-				corrected_next_struct =  kcenter_semi_brute(pulse_deltas,
-					preamble_pos_clusters[i], given_length + 30,
-					data_length)
+				#corrected_next_struct =  kcenter_semi_brute(pulse_deltas,
+				#	preamble_pos_clusters[i], given_length + 30,
+				#	data_length)
 
-				if corrected_next_struct is not None:
-					next_struct = corrected_next_struct
-					brute_corrected = True
+				#if corrected_next_struct is not None:
+				#	next_struct = corrected_next_struct
+				#	brute_corrected = True
 
 			if "datalen" in next_struct:
 				# Don't trust the data length if CRC isn't OK.
@@ -228,7 +229,8 @@ def full_brute(pulse_deltas, chunk_pos_preamble, end_upper_bound,
 		#use_alpha = True
 
 		if use_alpha:
-			assn = lambda a, b, c, d: dewarp.simplest_ever_pll(a, b, c, d, alpha)
+			assn = lambda a, b, c, d: dewarp.simplest_ever_pll(a, b, c, d,
+				alpha)
 		else:
 			alpha = 0
 			assn = low_level.assign_partial
@@ -267,9 +269,15 @@ def augment_full_brute(pulse_deltas, decoded_so_far, data_length=0):
 	augmented_decoded = []
 
 	for i in range(len(decoded_so_far)):
-		if decoded_so_far[i]["_num_errors"] == 0:
+		if "_num_errors" in decoded_so_far[i] and decoded_so_far[i]["_num_errors"] == 0:
 			augmented_decoded.append(decoded_so_far[i])
 			continue
+
+		# This happens if the structure is unknown and we don't know
+		# how many errors it has (because its length depends on its
+		# type). In that case, just pretend it has infinite errors.
+		if not "_num_errors" in decoded_so_far[i]:
+			decoded_so_far[i]["_num_errors"] = np.inf
 
 		start_pos = preamble_pos_clusters[i][0]
 		if i == len(preamble_pos_clusters)-1:
@@ -287,6 +295,10 @@ def augment_full_brute(pulse_deltas, decoded_so_far, data_length=0):
 			print(":-X could not find a single struct. This should never happen and indicates a bug, but continuing anyway...")
 			augmented_decoded.append(decoded_so_far[i])
 			continue
+
+		# See above.
+		if not "_num_errors" in possible_improved_struct:
+			possible_improved_struct["_num_errors"] = np.inf
 
 		if possible_improved_struct["_num_errors"] < decoded_so_far[i]["_num_errors"]:
 			if possible_improved_struct["_num_errors"] == 0 and possible_improved_struct["CRC_OK"]:
@@ -420,30 +432,43 @@ def print_stats(decoded_structure):
 	except ZeroDivisionError:
 		print("\t\tNo chunks found, neither valid nor invalid.")
 
-def get_datalen(decoded):
+def get_IDAM_field(decoded, field):
 	for chunk in decoded:
-		if chunk["header"] == "IDAM":
-			return chunk["datalen"]
+		if chunk["header"] == "IDAM" and chunk["CRC_OK"]:
+			return chunk[field]
 
-	return None
+	raise KeyError("Couldn't find a valid IDAM with field " + field)
+
+def get_datalen(decoded): return get_IDAM_field(decoded, "datalen")
+def get_track(decoded): return get_IDAM_field(decoded, "track")
+def get_head(decoded): return get_IDAM_field(decoded, "head")
 
 def demonstrate(au_name):
 	pulses = get_pulse_deltas(au_name)
 	decoded = decode_all(pulses)
-	augmented_decoded = augment_full_brute(pulses, decoded, 
+	augmented_decoded = augment_full_brute(pulses, decoded,
 		get_datalen(decoded))
+	print("Reconstructing corrupted IDAMs. This might take a while...")
+	reconstructed = mfm.reconstruct_idams(pulses, augmented_decoded, 
+		get_track(decoded), get_head(decoded), get_datalen(decoded))
 
-	print("Without brute-forcing:")
+	print("\nWithout brute-forcing:")
 	print_stats(decoded)
 	if len(decoded) > 0:
 		print("\n\t\t%d%% of the floppy data was decoded." %
 			(100*get_coverage(pulses, decoded)))
 
-	print("With brute-forcing (no dewarping):")
+	print("\nWith brute-forcing (no dewarping):")
 	print_stats(augmented_decoded)
 	if len(augmented_decoded) > 0:
 		print("\n\t\t%d%% of the floppy data was decoded." %
 			(100*get_coverage(pulses, augmented_decoded)))
+
+	print("\nWith brute-forcing and corrupted sector detection:")
+	print_stats(reconstructed)
+	if len(reconstructed) > 0:
+		print("\n\t\t%d%% of the floppy data was decoded." %
+			(100*get_coverage(pulses, reconstructed)))
 
 # hist_cat, hist_cat_valid = categorize_decoded(hist_decoded)
 

@@ -1,6 +1,9 @@
 import numpy as np
+import approx_search
+import fuzzysearch
 import low_level
 import struct
+import copy
 import re
 
 # Interpret MFM.
@@ -470,6 +473,105 @@ def decode_floppy_struct(dec_bytes, last_idam_datalen):
 
 	raise KeyError
 
+# More experimental stuff
+# Reconstruct hypothetical chunks and then search for them with some "typos"
+# (missing fluxes, etc) permitted.
+
+def encode_floppy_struct(floppy_info, include_preamble, include_CRC):
+
+	data_length = [128, 256, 512, 1024]
+	outbytes = b''
+
+	# Outbytes always contains the preamble because the CRC is also
+	# calculated over these. Setting include_preamble to false just
+	# chops it away afterwards.
+
+	if floppy_info["header"] == "IAM":
+		if include_preamble: outbytes += b'\xc2\xc2\xc2'
+		outbytes += '\xfc'
+		if include_preamble:
+			return outbytes
+		else:
+			return outbytes[3:]
+
+	if ("truncated" in floppy_info and floppy_info["truncated"]) or \
+	   ("CRC_OK" in floppy_info and not floppy_info["CRC_OK"]):
+		raise Exception("Can't encode chunk with errors!")
+
+	if floppy_info["header"] == "IDAM":
+		outbytes += b'\xa1\xa1\xa1'
+		outbytes += b'\xfe' + \
+			floppy_info["track"].to_bytes(1, 'big') + \
+			floppy_info["head"].to_bytes(1, 'big') + \
+			floppy_info["sector"].to_bytes(1, 'big') + \
+			data_length.index(floppy_info["datalen"]).to_bytes(1,
+				'big')
+
+		# This can be made common.
+		if include_CRC:
+			if "CRC" in floppy_info:
+				outbytes += floppy_info["CRC"].to_bytes(2, 'big')
+			else:
+				CRC = crc16(outbytes, 0, len(outbytes))
+				outbytes += CRC.to_bytes(2, 'big')
+
+		if include_preamble:
+			return outbytes
+		else:
+			return outbytes[3:]
+
+	# More to come ...
+
+	raise KeyError("Unknown floppy chunk type!")
+
+def encode_to_bits(decoded, include_preamble, include_CRC):
+	
+	encoded_bytes = encode_floppy_struct(decoded, include_preamble,
+		include_CRC)
+
+	return np.unpackbits(np.frombuffer(encoded_bytes, dtype=np.uint8))
+
+# Throws an error if the first bit is a zero because it's impossible to
+# unambiguously encode to MFM without knowing what the bit before the first
+# is, in that case.
+
+#       1       is represented by       NR
+#       0       is represented by       RN      if we last observed a 0 bit.
+#       0       is represented by       NN      if we last observed a 1 bit.
+
+def encode_mfm(bitstring):
+
+	# WARNING: Does not reproduce the out-of-band indicators on A1A1A1
+	# or C2C2C2 if passed these. See encode_chunk_to_mfm, below.
+
+	last_bit = None
+	mfm_fluxes = []
+
+	for bit in bitstring:
+		if bit == 1:
+			mfm_fluxes += [0, 1]
+		if bit == 0:
+			if last_bit is None:
+				raise Exception("MFM: Can't encode an initial zero!")
+			if last_bit == 0:
+				mfm_fluxes += [1, 0]
+			if last_bit == 1:
+				mfm_fluxes += [0, 0]
+		last_bit = bit
+
+	return np.array(mfm_fluxes)
+
+def encode_chunk_to_mfm(decoded, include_CRC=True):
+	# We may want to omit the CRC later and check partial matches' CRC
+	# field after matching them; that should make false positives very
+	# unlikely to occur.
+	body_mfm = encode_mfm(encode_to_bits(decoded, False, include_CRC))
+
+	if decoded["header"] == "IAM":
+		return np.concatenate([short_C2_code, body_mfm])
+	else:
+		return np.concatenate([short_A1_code, body_mfm])
+
 # EXPERIMENTAL
 # I don't know if this is the approach I want to take... I can be much
 # more generous (as long as I've already excluded the sectors that aren't
@@ -482,9 +584,8 @@ def decode_floppy_struct(dec_bytes, last_idam_datalen):
 
 # test_asn = above
 # sp = test_asn.astype(np.uint8).tostring()
-# brute_assignment = low_level.assign(pulses_77_long, cluster_on_preambles(
-#	pulses_77_long))
-# hp = brute_assignment.tostring()
+# brute_assignment = assign_on_preamble_positions(pulses_77_long)
+# hp = brute_assignment.astype(np.uint8).tostring()
 # fuzzysearch.find_near_matches(sp, hp, max_substitutions=5,
 #	max_insertions=0, max_deletions=0)
 
@@ -508,3 +609,165 @@ def decode_floppy_struct(dec_bytes, last_idam_datalen):
 # be adjacent to an IDAM or DAM respectively, and thus turn a sector with
 # unknown data (or a data chunk with unknown designation) into one that's
 # both.
+
+# Fuzzy search stuff below:
+
+# Construct a (quick and dirty) assignment from pulse deltas by using preamble
+# positions and clusters. Used for finding "almost right" chunks (reversing
+# corruption based on the assumption that we know what a correct chunk would
+# look like).
+
+def assign_on_preamble_positions(pulse_deltas):
+	preamble_pos_clusters = get_preamble_positions_clusters(pulse_deltas)
+
+	# First decode/assign everything from 0 up to the first position, using
+	# a global guess for the clustering.
+	clustering = cluster_on_preambles(pulse_deltas)
+	start_pos, end_pos = 0, preamble_pos_clusters[0][0]
+
+	assn = low_level.assign(pulse_deltas[:end_pos], clustering)
+
+	# Then encode everything up to the next detected preamble using the
+	# current detected preamble's clustering.
+	for pos in range(len(preamble_pos_clusters)):
+		start_pos = preamble_pos_clusters[pos][0]
+		try:
+			end_pos = preamble_pos_clusters[pos+1][0]
+		except IndexError:
+			end_pos = -1
+
+		clustering = preamble_pos_clusters[pos][1]
+
+		assn = np.concatenate([assn, low_level.assign(
+			pulse_deltas[start_pos:end_pos], clustering)])
+
+	return assn
+
+# Get a list of possible starts of corrupted chunks. This searches for A1A1A1
+# and the upper all-ones nibble that follows; that preamble is the longest
+# possible that is common to all chunk types (except IAMs, but we don't care
+# much about them).
+
+# Max_subst, max_inserts, and max_dels give the number of substitutions,
+# insertions, and deletions allowed while still considering the string to be
+# a match to the preamble. Higher values are slower but match more, may produce
+# more false positives.
+
+# The function does the precomputation each time. It's possible to offload
+# that to a file and do it only once, but I haven't bothered.
+def get_corrupted_chunk_pos(pulses_assignment, max_substs, max_inserts,
+	max_dels):
+
+	common_prefix = low_level.encode_to_assignment(np.concatenate([[1, 0],
+		short_A1_code, encode_mfm([1, 1, 1, 1, 1])]))
+
+	return approx_search.approximate_match(pulses_assignment,
+		common_prefix, len(common_prefix), max_substs,
+		max_inserts, max_dels)
+
+# Search for sector markers (IDAMs).
+# Sensible defaults for the max distance values.
+def search_all_idams(pulse_deltas, track, head, min_sector, max_sector,
+	datalen, max_substs=3, max_inserts=1, max_deletes=1):
+
+	pulses_assignment = assign_on_preamble_positions(pulse_deltas)
+	preamble_positions = get_corrupted_chunk_pos(pulses_assignment,
+		max_substs, max_inserts, max_deletes)
+
+	common_prefix = low_level.encode_to_assignment(np.concatenate([[1, 0],
+		short_A1_code, encode_mfm([1, 1, 1, 1, 1])]))
+
+	sector_positions = {}
+
+	for sector in range(min_sector, max_sector+1):
+		desired_chunk = {}
+		desired_chunk["header"] = "IDAM"
+		desired_chunk["head"] = head
+		desired_chunk["track"] = track
+		desired_chunk["sector"] = sector
+		desired_chunk["datalen"] = datalen
+
+		desired_chunk_as_assignments = low_level.encode_to_assignment(
+			np.concatenate([[1, 0],
+			encode_chunk_to_mfm(desired_chunk)]))
+
+		matches = approx_search.find_specific_chunk(
+			desired_chunk_as_assignments, pulses_assignment,
+			common_prefix, preamble_positions, max_substs,
+			max_inserts, max_deletes)
+		sector_positions[sector] = (desired_chunk, matches)
+
+		print(sector, len(matches))
+
+	return sector_positions
+
+# Quick and dirty way to reconstruct corrupted sector identifier chunks (IDAMs).
+# A similar thing is possible for data chunks by comparing them to intact
+# chunks, but it would be too much like cheating/overfitting my "difficult"
+# floppy images, because those have all sectors contain the same data.
+# Thus, to keep myself honest, I haven't implemented that here.
+
+# TODO? Somehow make use of already_decoded_chunks when creating the full
+# assignments array to search for corrupted sectors in. Then e.g. the bruting
+# done augment_full_brute would also decrease the edit distance to almost-
+# matched IDAMs, thus bringing more of them inside the max Levenshtein distance
+# threshold.
+
+def reconstruct_idams(pulse_deltas, already_decoded_chunks, track, head,
+	datalen, max_substs=3, max_inserts=1, max_deletes=1):
+
+	# This is the output. It will contain all already decoded chunks plus
+	# any reconstructed corrupted ones.
+	augmented_decoded_partial = copy.deepcopy(already_decoded_chunks)
+
+	# HD floppy min and max sectors.
+	partial_sectors = search_all_idams(pulse_deltas, track, head, 0, 24,
+		datalen, max_substs, max_inserts, max_deletes)
+
+	for sector_num in partial_sectors.keys():
+		chunk = partial_sectors[sector_num][0]
+		chunk_positions = partial_sectors[sector_num][1]
+
+		# Detect whether a corrupted sector already exists by comparing
+		# their end positions. We can't compare start positions because
+		# the corrupted IDAM search uses a much shorter preamble.
+		# There's some kind of off-by-one here, hence the subtraction
+		# by one. I don't know where the off-by-one is, though, thus
+		# this hack.
+		end_positions = np.array([x["_end_pos"] for x in 
+			augmented_decoded_partial])-1
+
+		for i in chunk_positions:
+			# Create the potential replacement decoded chunk
+			# structure if we're to add one to augmented_decoded_
+			# partial later. Note the "cheeky" CRC of -1 but with
+			# CRC_OK set to True. I may replace that with the actual
+			# CRC later.
+
+			corrupted_idam = copy.copy(chunk)
+			corrupted_idam["_start_pos"] = i[0]
+			corrupted_idam["_end_pos"] = i[1]+1
+			corrupted_idam["_corruption_distance"] = i[2]
+			corrupted_idam["CRC_OK"] = True
+			corrupted_idam["CRC"] = -1
+
+			# If this chunk already exists (e.g. IDAM with bad CRC;
+			# a chunk with the end position of the corrupted IDAM's
+			# end position already exists in augmented_decoded_
+			# partial), then replace it.
+
+			end_pos_location = np.searchsorted(end_positions, i[1])
+
+			if end_positions[end_pos_location] == i[1]:
+				if ("CRC_OK" in augmented_decoded_partial[end_pos_location]) and augmented_decoded_partial[end_pos_location]["CRC_OK"]:
+					continue
+				augmented_decoded_partial[end_pos_location] = corrupted_idam
+			else:
+				augmented_decoded_partial.append(corrupted_idam)
+
+		# Sort by starting position (required for other decoding functs
+		# to associate IDAMs with data later)
+		augmented_decoded_partial = sorted(augmented_decoded_partial,
+			key=lambda x: x["_start_pos"])
+
+	return augmented_decoded_partial
