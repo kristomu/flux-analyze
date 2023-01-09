@@ -668,9 +668,10 @@ def get_corrupted_chunk_pos(pulses_assignment, max_substs, max_inserts,
 # Search for sector markers (IDAMs).
 # Sensible defaults for the max distance values.
 def search_all_idams(pulse_deltas, track, head, min_sector, max_sector,
-	datalen, max_substs=3, max_inserts=1, max_deletes=1):
+	datalen, max_substs=3, max_inserts=1, max_deletes=1, pulses_assignment=None):
 
-	pulses_assignment = assign_on_preamble_positions(pulse_deltas)
+	if pulses_assignment is None:
+		pulses_assignment = assign_on_preamble_positions(pulse_deltas)
 	preamble_positions = get_corrupted_chunk_pos(pulses_assignment,
 		max_substs, max_inserts, max_deletes)
 
