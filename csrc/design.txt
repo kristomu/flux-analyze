@@ -1,0 +1,30 @@
+The MFM decoder is based around a number of data structures, each organized
+into levels. The lower the level, the closer it is to the raw flux data
+pulled from the FluxEngine file.
+
+These data structures are:
+	Level zero:
+		Flux deltas: a vector of time intervals between detected
+		fluxes, on some arbitrary time scale. This is just the
+		FluxEngine data after decompression.
+
+		NOTE: I should discard the first and last record of every
+		flux delta vector because we don't know how far from a flux
+		reversal the head started or stopped reading. That's
+		currently done in a haphazard way on higher level structures.
+
+	Level one:
+		MFM pulse train: this is a vector of bits produced by decoding
+		the flux deltas, with 1 corresponding to a flux reversal and 0
+		to no reversal. It's ready to be parsed by an MFM decoder.
+
+		The mapping between multiples of clock and the number of
+		zeroes in an MFM pulse train is nonlinear, so if there are any
+		out of spec delays in the flux delta vector, these may become
+		arbitrarily long after decoding. (I'll find some principled way
+		to deal with these later.)
+
+	Level two:
+		Floppy data: A class containing subclasses for the three types
+		of IBM MFM data chunks: IDAM, IAM, and DAM. (Not implemented
+		yet.)

@@ -2,9 +2,11 @@
 // from the Python version... hopefully faster and
 // more accurate. Perhaps multiple flux file support ???
 
+#include <algorithm>
 #include <iostream>
 #include <sqlite3.h>
 
+#include <fstream>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -70,7 +72,7 @@ enum comp_type { CT_UNCOMPRESSED = 0, CT_ZLIB = 1 };
 class flux_data {
 	public:
 		int track, side;
-		std::vector<int> flux_delays;
+		std::vector<int> flux_deltas;
 
 		flux_data(int track_in, int side_in,
 			comp_type compression_type, std::string fluxengine_data) {
@@ -99,20 +101,29 @@ class flux_data {
 			// just indicates that the flux delay is larger than 63, and
 			// so we should accumulate them. Otherwise the flux delay
 			// is just the byte & 0x3F.
+
+			// Always skip the first such byte that we would otherwise
+			// output because we don't know where the head was set down;
+			// it could have been in the middle of a region between two
+			// flux transitions.
 			
-			flux_delays.reserve(uncompressed_data.size());
+			flux_deltas.reserve(uncompressed_data.size());
 
 			int next_delay = 0;
+			bool skip_first = true;
 			for (unsigned char data_byte: uncompressed_data) {
 				next_delay += data_byte & 0x3F;
 				if ((data_byte & 0x3F) != 0x3F) {
-					flux_delays.push_back(next_delay);
+					if (!skip_first) {
+						flux_deltas.push_back(next_delay);
+					}
+					skip_first = false;
 					next_delay = 0;
 				}
 			}
 
-			if (next_delay != 0) {
-				flux_delays.push_back(next_delay);
+			if (next_delay != 0 && !skip_first) {
+				flux_deltas.push_back(next_delay);
 			}
 		}
 };
@@ -221,10 +232,10 @@ void ordinal_search(const flux_data & flux) {
 	// then the delta is +1; if it's decreasing, it's -1; if it's the
 	// same, it's 0.
 	
-	std::vector<int> flux_delta(flux.flux_delays.size()-1, 0);
+	std::vector<int> flux_delta(flux.flux_deltas.size()-1, 0);
 
 	for (size_t i = 0; i < flux_delta.size(); ++i) {
-		flux_delta[i] = sign(flux.flux_delays[i+1] - flux.flux_delays[i]);
+		flux_delta[i] = sign(flux.flux_deltas[i+1] - flux.flux_deltas[i]);
 		std::cout << flux_delta[i] << " ";
 	}
 
@@ -233,80 +244,155 @@ void ordinal_search(const flux_data & flux) {
 
 // PROCESSING
 
-// There are two stage from here. The first is just the train of reversals/
-// no flux reversals, e.g. if the clock is 20 and we have 40, then we first
-// have no reversal (0) then a reversal (1). In a way this is the "integral"
-// of the flux deltas, quantized wrt. the clock.
-// Unlike the Python program, I won't be using three bands, I'll just be using
-// one clock; this is the easiest way to do things. I can test whether there's
-// a benefit to going to the more complex three-band version later.
-// Note also that the length of the first clock is undefined. E.g. if the first
-// byte is 40, then that means that, from the point where the read head started
-// reading to the first flux transition, two clocks happened. But we have no
-// way of knowing where the previous flux transition happened.
+// Turn a flux delta vector into an MFM pulse train by comparing the distance
+// between flux reversals. Our job is made more difficult because apparently
+// the mapping is nonlinear: one clock length corresponds to 01, 1.5 clock
+// lengths to 001, and 2 clock lengths to 0001.
 
-// The second is the MFM coding itself. Consider the bit pattern that the
-// first stage produces; then
-// https://info-coach.fr/atari/hardware/FD-Hard.php#Modified_Frequency_Modulation
-// has a good table of how to turn this into MFM.
-// If there's an NN, i.e. 00, and the last bit was 0, then that's an error.
-// It's used deliberately in sync sequences but otherwise indicates that
-// something went wrong. The same goes for RR, which I've (arbitrarily?)
-// designated a one; it should never happen. There may be better ways to
-// handle RRs, e.g. assuming everything shorter than the clock is RNR.
-
-// Error_out is an output parameter where the error (departure from perfect
-// fit) is stored.
-//
-// We should handle very long reversals, e.g. RNNNNNNR, the expected way
-// even though IBM floppies can't have more than three non-reversals between
-// each reversal; this because I may want to overlap different reads of the
-// same track later to combine them to find otherwise missing reversals. Note
-// that from an ideal perspective, a flux reversal is infinitesimally short
-// because the square wave it's differentiated from would be perfectly sharp.
+// For this reason, longer delays are undefined. I may handle these later,
+// but note that they are out of spec and should never occur on uncorrupted
+// floppies with the right clock.
 
 // TODO: When searching for patterns (i.e. not correcting errors), it may be
 // quicker to make a run-length encoding of this (e.g. 10010001 = 2 3, and then
 // search for run-length encoded stuff instead, since both the haystack and
 // needle will be shorter. Do that perhaps?)
 
-std::vector<char> get_sequence_bits(double clock,
-		const std::vector<int> delays, double & error_out) {
+// The error_out double is set to a badness-of-fit value: the higher the worse.
+// This might be usable as a very quick clock inference method, but I'll have to
+// test more before I know for sure.
+
+// Level one:
+
+std::vector<char> get_MFM_train(double clock,
+		const std::vector<int> flux_deltas, double & error_out) {
 
 	std::vector<char> sequence_bits;
 
 	error_out = 0;
 
+	// TODO: Render this irrelevant.
 	// Skip the first delay byte (see above). We know there's a
 	// flux transition after the first delay, so our stream begins
 	// with a one.
-	sequence_bits.reserve(delays.size() * 4 / 3); // expected number of bits per reversal
+	sequence_bits.reserve(flux_deltas.size() * 4 / 3); // expected number of bits per reversal
 	sequence_bits.push_back(1);
 
-	for (size_t i = 1; i < delays.size(); ++i) {
-		double frac_clock = delays[i]/clock;
-		int period = std::round(frac_clock);
-		double error_term = delays[i] - period * clock;
+	for (size_t i = 1; i < flux_deltas.size(); ++i) {
+		// We'll model the nonlinearity like this:
+		//		- There's always half a clock's delay before anything happens.
+		//		- Then one zero corresponds to half a clock more, two zeroes is
+		//			two halves more, and three zeroes is three, and so on.
 
-		//std::cout << "PARSE TEST " << (int)delays[i] << " " << period << std::endl;
+		double half_clocks = (flux_deltas[i]*2)/clock;
 
-		// PLL test.
-		//clock = 0.9 * clock + 0.1 * delays[i]/(double)period;
-		//std::cout << clock << std::endl;
+		// Subtract the constant half-clock offset of one, then round the next
+		// to get the number of zeroes.
+		int zeroes = std::max(0, (int)std::round(half_clocks - 1));
 
 		// Update Euclidean error.
+		// Clamp the zeroes to [1..3] to penalize wrong clock guesses.
+		// NOTE: This may produce very misleading errors if the disk is
+		// partially corrupted because the mean is not a robust estimator.
+		// Deal with it later if required.
+		int clamped_zeroes = std::max(1, std::min(3, zeroes));
+		double error_term = flux_deltas[i] - (clamped_zeroes + 1) * clock/2.0;
 		error_out += error_term * error_term;
 
-		for (int j = 0; j < period; ++j) {
+		for (int j = 0; j < zeroes; ++j) {
 			sequence_bits.push_back(0);
 		}
 		sequence_bits.push_back(1);
 	}
 
-	error_out = std::sqrt(error_out / delays.size());
+	error_out = std::sqrt(error_out / flux_deltas.size());
 
 	return sequence_bits;
 }
+
+// Level two:
+
+class MFM_data {
+	public:
+		std::vector<char> decoded_data;
+		std::vector<char> errors;
+
+		void decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
+			const std::vector<char>::const_iterator & MFM_train_end);
+};
+
+void MFM_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
+	const std::vector<char>::const_iterator & MFM_train_end) {
+
+	// If N denotes "no reversal" and R denotes "reversal", then
+	// the MFM state machine is as follows:
+	//		1		is represented by 		NR
+	//		0		is represented by		RN		if the last bit was zero
+	//		0		is represented by		NN		if the last bit was one
+
+	// everything else is an error, though (IIRC) the preambles depend
+	// on RN and NN always being decoded to a 0. RR is a hard error;
+	// I just throw an exception (fix later if this is a problem).
+
+	// I'm using 1 and 0 literals for one and zero bits; note that this
+	// is exactly opposite of the C tradition (0 is true, 1 is false).
+
+	decoded_data.clear();
+	errors.clear();
+	unsigned char current_char = 0, current_char_errors = 0;
+	size_t bits_output = 0;
+	auto pos = MFM_train_start;
+
+	// We don't know the MFM train data prior to the first bit,
+	// so we don't know if the "last" decoded bit would've been a
+	// zero or a one. Therefore, be optimistic and never report an
+	// error for the first bit.
+	bool beginning = true;
+	char last_bit = 0;
+
+	char bits[2];
+
+	while (pos != MFM_train_end) {
+		// Clock two bits.
+		bits[0] = *pos++;
+		if (pos == MFM_train_end) { continue; }
+		bits[1] = *pos++;
+		switch(bits[0] * 2 + bits[1]) {
+			case 0: // NN
+				if (!beginning && last_bit != 1) {
+					++current_char_errors;
+				}
+				last_bit = 0;
+				break;
+			case 1: // NR
+				++current_char;
+				last_bit = 1;
+				break;
+			case 2: // RN
+				if (!beginning && last_bit != 0) {
+					++current_char_errors;
+				}
+				last_bit = 0;
+				break;
+			case 3: // RR
+				throw std::runtime_error("Out of spec RR found in MFM train!");
+				break;
+		}
+		bits_output++;
+		beginning = false;
+		if (bits_output == 8) {
+			decoded_data.push_back(current_char);
+			errors.push_back(current_char_errors);
+			current_char = 0;
+			current_char_errors = 0;
+			bits_output = 0;
+		} else {
+			current_char <<= 1;
+			current_char_errors <<= 1;
+		}
+	}
+}
+
 
 // Read the flux data from the given FluxEngine filename. Returns a
 // vector of flux data. If verbose is set to true, output stats as
@@ -362,11 +448,11 @@ std::vector<flux_data> get_flux_data(std::string flux_filename,
 					std::cout << "T: " << track << ", S: "
 						<< side << ", compression: " << compression
 						<< ", num bytes: " << data_size << ", total bytes: " <<
-						this_row.flux_delays.size() << std::endl;
+						this_row.flux_deltas.size() << std::endl;
 				}
 
-				// TODO: Stuff it into a proper data structure and handle it elsewhere.
-
+				// Dump it into the flux_records vector. (Perhaps indexing it by head and
+				// side would make more sense?)
 				flux_records.push_back(this_row);
 				break;
 			}
@@ -403,86 +489,6 @@ std::vector<flux_data> get_flux_data(std::string flux_filename,
  *    = ..X..X..X....X
  * as a true composition. */
 
-int vmain() {
-	std::string flux_to_read = "VIGOR.flux"; // fix later
-
-	sqlite3 * database;
-
-	// Open FluxEngine sqlite database.
-	if (sqlite3_open(flux_to_read.c_str(), &database) != SQLITE_OK) {
-		sqlite3_close(database);
-		throw std::runtime_error("Could not open flux file " + flux_to_read);
-	}
-
-	// Now get every track and side. (NOTE: This differs from the MFM blocks,
-	// which are categorized by sector, IIRC.)
-	sqlite3_stmt * statement;
-	std::string flux_query = "SELECT track, side, data, compression FROM zdata";
-	if (sqlite3_prepare_v2(database, flux_query.c_str(),
-		-1, &statement, NULL) != SQLITE_OK) {
-
-		std::string err = "Could not prepare statement! sqlite error: " +
-			std::string(sqlite3_errmsg(database));
-		sqlite3_close(database);
-
-		throw std::runtime_error(err);
-	}
-
-	std::vector<flux_data> flux_records;
-
-	bool done = false;
-	while (!done) {
-		switch(sqlite3_step(statement)) {
-			case SQLITE_DONE:
-				done = true;
-				break;
-			case SQLITE_ROW: {
-				int track = sqlite3_column_int(statement, 0);
-				int side = sqlite3_column_int(statement, 1);
-				comp_type compression = (comp_type)
-					sqlite3_column_int(statement, 3);
-
-				int data_size = sqlite3_column_bytes(statement, 2);
-				const char * data = (const char *)sqlite3_column_blob(
-					statement, 2);
-				std::string data_str(data, data + data_size);
-
-				std::cout << "T: " << track << ", S: " << side << ", compression: "
-					<< compression << ", num bytes: " << data_size;
-
-				// TODO: Stuff it into a proper data structure and handle it elsewhere.
-				flux_data foo(track, side, compression, data_str);
-				std::cout << std::endl << "\t" << foo.flux_delays.size() << std::endl;
-				flux_records.push_back(foo);
-				break;
-			}
-			default: {
-				std::cout << sqlite3_step(statement) << std::endl;
-				std::string err = "Could not retrieve row! sqlite error: " +
-					std::string(sqlite3_errmsg(database));
-				sqlite3_close(database);
-
-				throw std::runtime_error(err);
-			}
-		}
-	}
-
-	// All done, get outta here.
-	sqlite3_finalize(statement);
-	sqlite3_close(database);
-
-	// Stuff not related to the database goes here.
-	//
-	for (const flux_data & f: flux_records) {
-		double error;
-
-		std::vector<char> sequence = get_sequence_bits(23,
-				f.flux_delays, error);
-
-		std::cout << f.track << ", " << f.side << " error = " << error << "\n";
-	}
-	return 0;
-}
 
 // Quick and dirty (brute force) string search. Fix later.
 std::vector<int> search(const std::vector<char> & haystack,
@@ -515,8 +521,8 @@ int main() {
 	for (const flux_data & f: flux_records) {
 		double error;
 
-		std::vector<char> sequence = get_sequence_bits(17,
-				f.flux_delays, error);
+		std::vector<char> sequence = get_MFM_train(23.5,
+				f.flux_deltas, error);
 
 		std::cout << f.track << ", " << f.side << " error = " << error << "\n";
 
@@ -525,6 +531,16 @@ int main() {
 		std::vector<int> a1_positions = search(sequence, magic.A1_sequence);
 		std::cout << "Sequences found: " << a1_positions.size() << std::endl;
 		std::cout << std::endl;
+
+		MFM_data md;
+		md.decode_MFM(sequence.begin() + a1_positions[1], sequence.begin()+a1_positions[2]);
+
+		std::ofstream fout("data.dat", std::ios::out | std::ios::binary);
+		fout.write(md.decoded_data.data(), md.decoded_data.size());
+		fout.close();
+		fout = std::ofstream("errors.dat", std::ios::out | std::ios::binary);
+		fout.write(md.errors.data(), md.errors.size());
+		fout.close();
 
 	}
 	return 0;
