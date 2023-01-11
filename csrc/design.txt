@@ -4,14 +4,10 @@ pulled from the FluxEngine file.
 
 These data structures are:
 	Level zero:
-		Flux deltas: a vector of time intervals between detected
-		fluxes, on some arbitrary time scale. This is just the
-		FluxEngine data after decompression.
-
-		NOTE: I should discard the first and last record of every
-		flux delta vector because we don't know how far from a flux
-		reversal the head started or stopped reading. That's
-		currently done in a haphazard way on higher level structures.
+		Flux record: a vector of time intervals between detected
+		fluxes, on some arbitrary time scale, or a class containing
+		this vector. This is just the FluxEngine data after
+		decompression.
 
 	Level one:
 		MFM pulse train: this is a vector of bits produced by decoding

@@ -15,120 +15,7 @@
 #include <zlib.h>
 
 #include "rabinkarp.h"
-
-// Taken from a zlib example. If I really want to optimize stuff,
-// there exist faster implementations of inflate than zlib's.
-std::string decompress_zlib(const std::string & input) {
-
-	// Initialize zstream
-	z_stream zstream;
-
-	zstream.opaque = Z_NULL;
-	zstream.zalloc = Z_NULL;
-	zstream.zfree = Z_NULL;
-
-	zstream.avail_in = 0;
-	zstream.next_in = Z_NULL;
-
-	zstream.avail_out = 0; // pump priming
-
-	int ret = inflateInit(&zstream);
-	if (ret != Z_OK) {
-		throw std::runtime_error("Could not initialize zlib stream! Error: " +
-			std::string(zError(ret)));
-	}
-
-	// Set the input parameters.
-	zstream.next_in = (Bytef *)input.c_str();
-	zstream.avail_in = input.size();
-
-	std::string decompressed;
-
-	// Decompress a buffer's worth at a time.
-	const int BUFLEN = 32768;
-
-	char decompressed_buf[BUFLEN];
-	while (zstream.avail_out == 0) {
-		zstream.avail_out = BUFLEN;
-		zstream.next_out = (Bytef *) decompressed_buf;
-
-		ret = inflate(&zstream, Z_NO_FLUSH);
-
-		if (ret != Z_OK && ret != Z_STREAM_END) {
-			inflateEnd(&zstream);
-			throw std::runtime_error("Could not decompress data! Error: " +
-				std::string(zError(ret)));
-		}
-
-		decompressed += std::string(decompressed_buf,
-			decompressed_buf + BUFLEN - zstream.avail_out);
-	}
-
-	// All done, do some cleanup, and then return.
-	inflateEnd(&zstream);
-	return decompressed;
-}
-
-enum comp_type { CT_UNCOMPRESSED = 0, CT_ZLIB = 1 };
-
-class flux_data {
-	public:
-		int track, side;
-		std::vector<int> flux_deltas;
-
-		flux_data(int track_in, int side_in,
-			comp_type compression_type, std::string fluxengine_data) {
-
-			track = track_in;
-			side = side_in;
-
-			std::string uncompressed_data;
-
-			// Decompress if necessary.
-			switch(compression_type) {
-				case CT_UNCOMPRESSED:
-					uncompressed_data = fluxengine_data;
-					break;
-				case CT_ZLIB:
-					uncompressed_data = decompress_zlib(fluxengine_data);
-					break;
-				default:
-					// TODO: itos
-					throw std::runtime_error(
-						"Unknown FluxEngine compression type!");
-			}
-
-			// As far as I understand it, the FluxEngine native format
-			// is simply: take each byte & 0x3F. If it is 0x3F, then that
-			// just indicates that the flux delay is larger than 63, and
-			// so we should accumulate them. Otherwise the flux delay
-			// is just the byte & 0x3F.
-
-			// Always skip the first such byte that we would otherwise
-			// output because we don't know where the head was set down;
-			// it could have been in the middle of a region between two
-			// flux transitions.
-			
-			flux_deltas.reserve(uncompressed_data.size());
-
-			int next_delay = 0;
-			bool skip_first = true;
-			for (unsigned char data_byte: uncompressed_data) {
-				next_delay += data_byte & 0x3F;
-				if ((data_byte & 0x3F) != 0x3F) {
-					if (!skip_first) {
-						flux_deltas.push_back(next_delay);
-					}
-					skip_first = false;
-					next_delay = 0;
-				}
-			}
-
-			if (next_delay != 0 && !skip_first) {
-				flux_deltas.push_back(next_delay);
-			}
-		}
-};
+#include "fluxrecord.h"
 
 // https://stackoverflow.com/a/14612943
 int sign(int x) {
@@ -227,17 +114,17 @@ MFM_magic_bytes::MFM_magic_bytes() {
 	C2_run_lengths = sequence_to_run_lengths(C2_sequence);
 }
 
-void ordinal_search(const flux_data & flux) {
+void ordinal_search(const flux_record & flux) {
 
 	// First generate a delta array, which consists of the sign value
 	// of adjacent values of the flux delay. If a delay is increasing,
 	// then the delta is +1; if it's decreasing, it's -1; if it's the
 	// same, it's 0.
 	
-	std::vector<int> flux_delta(flux.flux_deltas.size()-1, 0);
+	std::vector<int> flux_delta(flux.fluxes.size()-1, 0);
 
 	for (size_t i = 0; i < flux_delta.size(); ++i) {
-		flux_delta[i] = sign(flux.flux_deltas[i+1] - flux.flux_deltas[i]);
+		flux_delta[i] = sign(flux.fluxes[i+1] - flux.fluxes[i]);
 		std::cout << flux_delta[i] << " ";
 	}
 
@@ -267,7 +154,7 @@ void ordinal_search(const flux_data & flux) {
 // Level one:
 
 std::vector<char> get_MFM_train(double clock,
-		const std::vector<int> flux_deltas, double & error_out) {
+		const std::vector<int> fluxes, double & error_out) {
 
 	std::vector<char> sequence_bits;
 
@@ -277,16 +164,16 @@ std::vector<char> get_MFM_train(double clock,
 	// Skip the first delay byte (see above). We know there's a
 	// flux transition after the first delay, so our stream begins
 	// with a one.
-	sequence_bits.reserve(flux_deltas.size() * 4 / 3); // expected number of bits per reversal
+	sequence_bits.reserve(fluxes.size() * 4 / 3); // expected number of bits per reversal
 	sequence_bits.push_back(1);
 
-	for (size_t i = 1; i < flux_deltas.size(); ++i) {
+	for (size_t i = 1; i < fluxes.size(); ++i) {
 		// We'll model the nonlinearity like this:
 		//		- There's always half a clock's delay before anything happens.
 		//		- Then one zero corresponds to half a clock more, two zeroes is
 		//			two halves more, and three zeroes is three, and so on.
 
-		double half_clocks = (flux_deltas[i]*2)/clock;
+		double half_clocks = (fluxes[i]*2)/clock;
 
 		// Subtract the constant half-clock offset of one, then round the next
 		// to get the number of zeroes.
@@ -298,7 +185,7 @@ std::vector<char> get_MFM_train(double clock,
 		// partially corrupted because the mean is not a robust estimator.
 		// Deal with it later if required.
 		int clamped_zeroes = std::max(1, std::min(3, zeroes));
-		double error_term = flux_deltas[i] - (clamped_zeroes + 1) * clock/2.0;
+		double error_term = fluxes[i] - (clamped_zeroes + 1) * clock/2.0;
 		error_out += error_term * error_term;
 
 		for (int j = 0; j < zeroes; ++j) {
@@ -307,7 +194,7 @@ std::vector<char> get_MFM_train(double clock,
 		sequence_bits.push_back(1);
 	}
 
-	error_out = std::sqrt(error_out / flux_deltas.size());
+	error_out = std::sqrt(error_out / fluxes.size());
 
 	return sequence_bits;
 }
@@ -395,87 +282,6 @@ void MFM_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_st
 	}
 }
 
-
-// Read the flux data from the given FluxEngine filename. Returns a
-// vector of flux data. If verbose is set to true, output stats as
-// the data is read.
-
-std::vector<flux_data> get_flux_data(std::string flux_filename,
-	bool verbose) {
-
-	sqlite3 * database;
-
-	// Open FluxEngine sqlite database.
-	if (sqlite3_open(flux_filename.c_str(), &database) != SQLITE_OK) {
-		sqlite3_close(database);
-		throw std::runtime_error("Could not open flux file " + flux_filename);
-	}
-
-	// Now get every track and side. (NOTE: This differs from the MFM blocks,
-	// which are categorized by sector, IIRC.)
-	sqlite3_stmt * statement;
-	std::string flux_query = "SELECT track, side, data, compression FROM zdata";
-	if (sqlite3_prepare_v2(database, flux_query.c_str(),
-		-1, &statement, NULL) != SQLITE_OK) {
-
-		std::string err = "Could not prepare statement! sqlite error: " +
-			std::string(sqlite3_errmsg(database));
-		sqlite3_close(database);
-
-		throw std::runtime_error(err);
-	}
-
-	std::vector<flux_data> flux_records;
-
-	bool done = false;
-	while (!done) {
-		switch(sqlite3_step(statement)) {
-			case SQLITE_DONE:
-				done = true;
-				break;
-			case SQLITE_ROW: {
-				int track = sqlite3_column_int(statement, 0);
-				int side = sqlite3_column_int(statement, 1);
-				comp_type compression = (comp_type)
-					sqlite3_column_int(statement, 3);
-
-				int data_size = sqlite3_column_bytes(statement, 2);
-				const char * data = (const char *)sqlite3_column_blob(
-					statement, 2);
-				std::string data_str(data, data + data_size);
-
-				flux_data this_row(track, side, compression, data_str);
-
-				if (verbose) {
-					std::cout << "T: " << track << ", S: "
-						<< side << ", compression: " << compression
-						<< ", num bytes: " << data_size << ", total bytes: " <<
-						this_row.flux_deltas.size() << std::endl;
-				}
-
-				// Dump it into the flux_records vector. (Perhaps indexing it by head and
-				// side would make more sense?)
-				flux_records.push_back(this_row);
-				break;
-			}
-			default: {
-				std::cout << sqlite3_step(statement) << std::endl;
-				std::string err = "Could not retrieve row! sqlite error: " +
-					std::string(sqlite3_errmsg(database));
-				sqlite3_close(database);
-
-				throw std::runtime_error(err);
-			}
-		}
-	}
-
-	// All done, get outta here.
-	sqlite3_finalize(statement);
-	sqlite3_close(database);
-
-	return flux_records;
-}
-
 /* And then the plan is something like:
  * 	- Keep a list of MFM intro markers
  *	- Generate ordinal delta patterns
@@ -492,41 +298,22 @@ std::vector<flux_data> get_flux_data(std::string flux_filename,
  * as a true composition. */
 
 
-// Quick and dirty (brute force) string search. Fix later.
-std::vector<int> search(const std::vector<char> & haystack,
-	const std::vector<char> & needle) {
-
-	std::vector<int> hits;
-
-	for (size_t i = 0; i < haystack.size(); ++i) {
-		std::cerr << i / (double)haystack.size() << "   \r" << std::flush;
-		bool match = true;
-		for (size_t j = 0; j < needle.size() && match; ++j) {
-			match &= haystack[i+j] == needle[j];
-		}
-		if (match) {
-			hits.push_back(i);
-		}
-	}
-
-	return hits;
-}
-
 int main() {
 
 	test_rabin_karp();
 
-	std::vector<flux_data> flux_records = get_flux_data(
+	std::vector<flux_record> flux_records = get_flux_record(
 		"../tracks/low_level_format_with_noise.flux", true);
-	// Stuff not related to the database goes here.
+
+	// Some preliminary testing goes here.
 
 	MFM_magic_bytes magic;
 
-	for (const flux_data & f: flux_records) {
+	for (const flux_record & f: flux_records) {
 		double error;
 
 		std::vector<char> sequence = get_MFM_train(23.5,
-				f.flux_deltas, error);
+				f.fluxes, error);
 
 		std::cout << f.track << ", " << f.side << " error = " << error << "\n";
 
