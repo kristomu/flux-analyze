@@ -14,6 +14,8 @@
 
 #include <zlib.h>
 
+#include "rabinkarp.h"
+
 // Taken from a zlib example. If I really want to optimize stuff,
 // there exist faster implementations of inflate than zlib's.
 std::string decompress_zlib(const std::string & input) {
@@ -512,6 +514,8 @@ std::vector<int> search(const std::vector<char> & haystack,
 
 int main() {
 
+	test_rabin_karp();
+
 	std::vector<flux_data> flux_records = get_flux_data(
 		"../tracks/low_level_format_with_noise.flux", true);
 	// Stuff not related to the database goes here.
@@ -526,9 +530,11 @@ int main() {
 
 		std::cout << f.track << ", " << f.side << " error = " << error << "\n";
 
-		// Do a simple search for A1 patterns.
-		// Currently inordinately slow due to O(mn) complexity. I am aware :-)
-		std::vector<int> a1_positions = search(sequence, magic.A1_sequence);
+		// Do a simple search for A1 and C1 patterns.
+		rabin_karp rk(magic.A1_sequence);
+		rk.add(magic.C2_sequence);
+
+		std::vector<size_t> a1_positions = rk.find_matches(sequence); //search(sequence, magic.A1_sequence);
 		std::cout << "Sequences found: " << a1_positions.size() << std::endl;
 		std::cout << std::endl;
 
