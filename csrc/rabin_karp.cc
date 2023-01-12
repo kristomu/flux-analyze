@@ -6,7 +6,7 @@
 // and not restricted to a given string length, but also a much
 // greater pain to write.
 
-#include "rabinkarp.h"
+#include "rabin_karp.h"
 
 #include <vector>
 #include <algorithm>

@@ -6,7 +6,7 @@
 #include <zlib.h>
 #include <sqlite3.h>
 
-#include "fluxrecord.h"
+#include "flux_record.h"
 
 // -- HELPER FUNCTIONS --
 

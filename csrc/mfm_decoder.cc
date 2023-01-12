@@ -14,8 +14,8 @@
 
 #include <zlib.h>
 
-#include "rabinkarp.h"
-#include "fluxrecord.h"
+#include "rabin_karp.h"
+#include "flux_record.h"
 
 // https://stackoverflow.com/a/14612943
 int sign(int x) {
@@ -50,8 +50,6 @@ int sign(int x) {
 
 // Turn a sequence (e.g. 1 0 1 0 0 1) into a run length list (1 2). Run
 // length lists are used for the ordinal search approach.
-
-// I really should describe how the system is designed...
 
 std::vector<int> sequence_to_run_lengths(const std::vector<char> & sequence) {
 	// The sequence must start and end in an 1, because otherwise
@@ -151,23 +149,24 @@ void ordinal_search(const flux_record & flux) {
 // This might be usable as a very quick clock inference method, but I'll have to
 // test more before I know for sure.
 
+// In addition, the nonlinearity might save us sometimes: suppose that we have an
+// interval of 2.5 clocks. Then it's likely that this is either one clock followed
+// by 1.5 clocks (01001) or the other way around (00101), with some central flux
+// reversal having been erased. But I'm not going to do recovery before I've got
+// this working on normal images.
+
 // Level one:
 
 std::vector<char> get_MFM_train(double clock,
 		const std::vector<int> fluxes, double & error_out) {
 
 	std::vector<char> sequence_bits;
-
-	error_out = 0;
-
-	// TODO: Render this irrelevant.
-	// Skip the first delay byte (see above). We know there's a
-	// flux transition after the first delay, so our stream begins
-	// with a one.
 	sequence_bits.reserve(fluxes.size() * 4 / 3); // expected number of bits per reversal
 	sequence_bits.push_back(1);
 
-	for (size_t i = 1; i < fluxes.size(); ++i) {
+	error_out = 0;
+
+	for (size_t i = 0; i < fluxes.size(); ++i) {
 		// We'll model the nonlinearity like this:
 		//		- There's always half a clock's delay before anything happens.
 		//		- Then one zero corresponds to half a clock more, two zeroes is
@@ -220,8 +219,10 @@ void MFM_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_st
 	//		0		is represented by		NN		if the last bit was one
 
 	// everything else is an error, though (IIRC) the preambles depend
-	// on RN and NN always being decoded to a 0. RR is a hard error;
-	// I just throw an exception (fix later if this is a problem).
+	// on RN and NN always being decoded to a 0. RR is evidence of either
+	// the wrong clock or a spurious magnetic flux change. For lack of
+	// anything better, I'll change it to a 0 if the last bit was zero,
+	// and a 1 otherwise.
 
 	// I'm using 1 and 0 literals for one and zero bits; note that this
 	// is exactly opposite of the C tradition (0 is true, 1 is false).
@@ -246,7 +247,21 @@ void MFM_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_st
 		bits[0] = *pos++;
 		if (pos == MFM_train_end) { continue; }
 		bits[1] = *pos++;
-		switch(bits[0] * 2 + bits[1]) {
+
+		// Handle RR. There's a problem here that RR could always
+		// be NR, so it's kind of an unsatisfactory answer to the
+		// problem. We'd need a nondeterministic automaton
+		// or something...
+		int clock_pair = bits[0] * 2 + bits[1];
+		if (clock_pair == 3) {
+			if (last_bit == 0) {
+				clock_pair = 2; // Make it RN
+			} else {
+				clock_pair = 1; // Make it NR.
+			}
+		}
+
+		switch(clock_pair) {
 			case 0: // NN
 				if (!beginning && last_bit != 1) {
 					++current_char_errors;
@@ -264,7 +279,8 @@ void MFM_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_st
 				last_bit = 0;
 				break;
 			case 3: // RR
-				throw std::runtime_error("Out of spec RR found in MFM train!");
+				// This shouldn't happen.
+				throw std::runtime_error("RR stabilization failed!");
 				break;
 		}
 		bits_output++;
@@ -303,7 +319,7 @@ int main() {
 	test_rabin_karp();
 
 	std::vector<flux_record> flux_records = get_flux_record(
-		"../tracks/low_level_format_with_noise.flux", true);
+		"../tracks/MS_Plus_disk3_warped_track.flux", true);
 
 	// Some preliminary testing goes here.
 
