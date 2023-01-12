@@ -17,6 +17,8 @@
 #include "rabin_karp.h"
 #include "flux_record.h"
 
+#include "pulse_train.h"
+
 // https://stackoverflow.com/a/14612943
 int sign(int x) {
 	return (x > 0) - (x < 0);
@@ -130,73 +132,6 @@ void ordinal_search(const flux_record & flux) {
 }
 
 // PROCESSING
-
-// Turn a flux delta vector into an MFM pulse train by comparing the distance
-// between flux reversals. Our job is made more difficult because apparently
-// the mapping is nonlinear: one clock length corresponds to 01, 1.5 clock
-// lengths to 001, and 2 clock lengths to 0001.
-
-// For this reason, longer delays are undefined. I may handle these later,
-// but note that they are out of spec and should never occur on uncorrupted
-// floppies with the right clock.
-
-// TODO: When searching for patterns (i.e. not correcting errors), it may be
-// quicker to make a run-length encoding of this (e.g. 10010001 = 2 3, and then
-// search for run-length encoded stuff instead, since both the haystack and
-// needle will be shorter. Do that perhaps?)
-
-// The error_out double is set to a badness-of-fit value: the higher the worse.
-// This might be usable as a very quick clock inference method, but I'll have to
-// test more before I know for sure.
-
-// In addition, the nonlinearity might save us sometimes: suppose that we have an
-// interval of 2.5 clocks. Then it's likely that this is either one clock followed
-// by 1.5 clocks (01001) or the other way around (00101), with some central flux
-// reversal having been erased. But I'm not going to do recovery before I've got
-// this working on normal images.
-
-// Level one:
-
-std::vector<char> get_MFM_train(double clock,
-		const std::vector<int> fluxes, double & error_out) {
-
-	std::vector<char> sequence_bits;
-	sequence_bits.reserve(fluxes.size() * 4 / 3); // expected number of bits per reversal
-	sequence_bits.push_back(1);
-
-	error_out = 0;
-
-	for (size_t i = 0; i < fluxes.size(); ++i) {
-		// We'll model the nonlinearity like this:
-		//		- There's always half a clock's delay before anything happens.
-		//		- Then one zero corresponds to half a clock more, two zeroes is
-		//			two halves more, and three zeroes is three, and so on.
-
-		double half_clocks = (fluxes[i]*2)/clock;
-
-		// Subtract the constant half-clock offset of one, then round the next
-		// to get the number of zeroes.
-		int zeroes = std::max(0, (int)std::round(half_clocks - 1));
-
-		// Update Euclidean error.
-		// Clamp the zeroes to [1..3] to penalize wrong clock guesses.
-		// NOTE: This may produce very misleading errors if the disk is
-		// partially corrupted because the mean is not a robust estimator.
-		// Deal with it later if required.
-		int clamped_zeroes = std::max(1, std::min(3, zeroes));
-		double error_term = fluxes[i] - (clamped_zeroes + 1) * clock/2.0;
-		error_out += error_term * error_term;
-
-		for (int j = 0; j < zeroes; ++j) {
-			sequence_bits.push_back(0);
-		}
-		sequence_bits.push_back(1);
-	}
-
-	error_out = std::sqrt(error_out / fluxes.size());
-
-	return sequence_bits;
-}
 
 // Level two:
 
@@ -328,7 +263,11 @@ int main() {
 	for (const flux_record & f: flux_records) {
 		double error;
 
-		std::vector<char> sequence = get_MFM_train(23.5,
+		double clock = infer_clock(f.fluxes);
+
+		std::cout << "Guessed clock: " << clock << std::endl;
+
+		std::vector<char> sequence = get_MFM_train(clock,
 				f.fluxes, error);
 
 		std::cout << f.track << ", " << f.side << " error = " << error << "\n";
