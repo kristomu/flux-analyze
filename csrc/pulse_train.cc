@@ -26,10 +26,12 @@
 
 // Level one:
 
-std::vector<char> get_MFM_train(double clock,
+typedef std::vector<char> MFM_train_t;
+
+MFM_train_t get_MFM_train(double clock,
 		const std::vector<int> & fluxes, double & error_out) {
 
-	std::vector<char> sequence_bits;
+	MFM_train_t sequence_bits;
 	sequence_bits.reserve(fluxes.size() * 4 / 3); // expected number of bits per reversal
 	sequence_bits.push_back(1);
 
