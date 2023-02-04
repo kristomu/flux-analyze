@@ -73,11 +73,13 @@ int main() {
 		sd.decode_MFM(sequence.begin() + a1_positions[1], sequence.begin()+a1_positions[2]);
 
 		std::ofstream fout("data.dat", std::ios::out | std::ios::binary);
-		fout.write(sd.decoded_data.data(), sd.decoded_data.size());
+		fout.write((char *)sd.decoded_data.data(), sd.decoded_data.size());
 		fout.close();
 		fout = std::ofstream("errors.dat", std::ios::out | std::ios::binary);
-		fout.write(sd.errors.data(), sd.errors.size());
+		fout.write((char *)sd.errors.data(), sd.errors.size());
 		fout.close();
+
+		IBM_decoder.decode(sequence);
 
 	}
 	return 0;

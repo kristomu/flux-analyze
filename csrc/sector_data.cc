@@ -63,15 +63,26 @@ IBM_preamble::IBM_preamble() {
 // properly.
 class sector_data {
 	public:
-		std::vector<char> decoded_data;
-		std::vector<char> errors;
+		std::vector<unsigned char> decoded_data;
+		std::vector<unsigned char> errors;
+
+		// limit_length is used to terminate decoding early: if it's set to true,
+		// the decoding will stop after max_output_length bytes have been
+		// reconstructed. This is used for preamble checks.
+		void decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
+			const std::vector<char>::const_iterator & MFM_train_end,
+			bool limit_length, size_t max_output_length);
 
 		void decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
-			const std::vector<char>::const_iterator & MFM_train_end);
+			const std::vector<char>::const_iterator & MFM_train_end) {
+
+			decode_MFM(MFM_train_start, MFM_train_end, false, 0);
+		}
 };
 
 void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
-	const std::vector<char>::const_iterator & MFM_train_end) {
+	const std::vector<char>::const_iterator & MFM_train_end,
+	bool limit_length, size_t max_output_length) {
 
 	// If N denotes "no reversal" and R denotes "reversal", then
 	// the MFM state machine is as follows:
@@ -105,6 +116,9 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 	char bits[2];
 
 	while (pos != MFM_train_end) {
+		if (limit_length && decoded_data.size() >= max_output_length) {
+			return;
+		}
 		// Clock two bits.
 		bits[0] = *pos++;
 		if (pos == MFM_train_end) { continue; }
@@ -198,9 +212,10 @@ class decoder {
 	public:
 		decoder();
 
-		void decode(const sector_data & sector);
 		std::vector<size_t> get_preamble_locations(
 			std::vector<char> & MFM_train) const;
+
+		void decode(std::vector<char> & MFM_train);
 };
 
 // Relying on something initialized by the constructor of one object
@@ -214,6 +229,63 @@ std::vector<size_t> decoder::get_preamble_locations(
 	std::vector<char> & MFM_train) const {
 
 	return preamble_search.find_matches(MFM_train);
+}
+
+void decoder::decode(std::vector<char> & MFM_train) {
+	// First get the preamble locations.
+	std::vector<size_t> preamble_locations =
+		get_preamble_locations(MFM_train);
+
+	sector_data sd;
+
+	for (size_t i = 0; i < preamble_locations.size(); ++i) {
+		std::vector<char>::const_iterator pos = MFM_train.begin() +
+			preamble_locations[i];
+		std::vector<char>::const_iterator next_pos;
+		if (i < preamble_locations.size()-1) {
+			next_pos = MFM_train.begin() + preamble_locations[i+1];
+		} else {
+			next_pos = MFM_train.end();
+		}
+
+		// Decode four bytes to determine what mark we're dealing
+		// with. (TODO? Iterators? but then what about error/OOB signaling?)
+		sd.decode_MFM(pos, next_pos, true, 4);
+
+		// TODO: Move into IBM_preamble, make it return an enum so we can use
+		// switch/case or something nicer.
+		bool identified = false;
+		if(sd.decoded_data == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {
+			std::cout << "Index address mark at " <<
+				preamble_locations[i] << std::endl;
+			identified = true;
+		}
+		if(sd.decoded_data == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFE})) {
+			std::cout << "ID address mark at " <<
+				preamble_locations[i] << std::endl;
+			identified = true;
+		}
+		if(sd.decoded_data == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFB})) {
+			std::cout << "Data address mark at " <<
+				preamble_locations[i] << std::endl;
+			identified = true;
+		}
+		if(sd.decoded_data == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF8})) {
+			std::cout << "Deleted data address mark at " <<
+				preamble_locations[i] << std::endl;
+			identified = true;
+		}
+		if (!identified) {
+			std::cout << "???? Something else at " <<
+				preamble_locations[i] << std::endl;
+		}
+	}
+	// Then decode four bytes to determine the mark
+	// we're dealing with.
+	// Then decode enough bytes to get the header,
+	// then enough to get the data if any.
+	// We should probably carry through index markers for this, but
+	// it's pretty hard to do right...
 }
 
 
