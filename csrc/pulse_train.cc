@@ -32,18 +32,19 @@ MFM_train_t get_MFM_train(double clock,
 		const std::vector<int> & fluxes, double & error_out) {
 
 	MFM_train_t sequence_bits;
-	sequence_bits.reserve(fluxes.size() * 4 / 3); // expected number of bits per reversal
+	// expected number of bits per reversal, including ones.
+	sequence_bits.reserve(fluxes.size() * 8/3);
 	sequence_bits.push_back(1);
 
 	error_out = 0;
 
-	for (size_t i = 0; i < fluxes.size(); ++i) {
+	for (auto flux_delay: fluxes) {
 		// We'll model the nonlinearity like this:
 		//		- There's always half a clock's delay before anything happens.
 		//		- Then one zero corresponds to half a clock more, two zeroes is
 		//			two halves more, and three zeroes is three, and so on.
 
-		double half_clocks = (fluxes[i]*2)/clock;
+		double half_clocks = (flux_delay*2)/clock;
 
 		// Subtract the constant half-clock offset of one, then round the next
 		// to get the number of zeroes.
@@ -55,7 +56,7 @@ MFM_train_t get_MFM_train(double clock,
 		// partially corrupted because the mean is not a robust estimator.
 		// Deal with it later if required.
 		int clamped_zeroes = std::max(1, std::min(3, zeroes));
-		double error_term = fluxes[i] - (clamped_zeroes + 1) * clock/2.0;
+		double error_term = flux_delay - (clamped_zeroes + 1) * clock/2.0;
 		error_out += error_term * error_term;
 
 		for (int j = 0; j < zeroes; ++j) {

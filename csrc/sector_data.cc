@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 
 #include "rabin_karp.h"
@@ -209,44 +210,76 @@ class decoder {
 		std::vector<IDAM> IDAMs;
 		std::vector<IAM> IAMs;
 
-	public:
-		decoder();
+		// TODO later: something that keeps this cache from going
+		// stale if the user inputs one MFM train when doing calc_preamble,
+		// and then another with decode.
+		bool preamble_locations_calculated;
+		std::vector<size_t> preamble_locations;
 
 		std::vector<size_t> get_preamble_locations(
 			std::vector<char> & MFM_train) const;
 
+		// QND fix later: gets an index into the MFM train
+		// consistent with the beginning of the idx-th preamble,
+		// or the end of the array if idx is too large.
+		std::vector<char>::const_iterator get_pos_by_idx(
+			const std::vector<char> & MFM_train, size_t idx) const {
+
+			if (!preamble_locations_calculated) {
+				throw std::runtime_error("Preambles not located yet");
+			}
+
+			if (idx < preamble_locations.size()) {
+				return MFM_train.begin() + preamble_locations[idx];
+			} else {
+				return MFM_train.end();
+			}
+		}
+
+	public:
+		decoder();
+
+		void calc_preamble_locations(std::vector<char> & MFM_train);
 		void decode(std::vector<char> & MFM_train);
+
+		// For debugging.
+		void dump_to_file(std::vector<char> & MFM_train,
+			size_t start_location_idx,
+			size_t stop_location_idx,
+			std::string data_filename,
+			std::string error_filename) const;
 };
 
 // Relying on something initialized by the constructor of one object
 // in the constructor of another is kind of icky, but it seems to work.
 decoder::decoder() : preambles(), preamble_search(preambles.A1_sequence) {
 	preamble_search.add(preambles.C2_sequence);
+
+	preamble_locations_calculated = false;
 }
 
 
-std::vector<size_t> decoder::get_preamble_locations(
-	std::vector<char> & MFM_train) const {
+void decoder::calc_preamble_locations(
+	std::vector<char> & MFM_train) {
 
-	return preamble_search.find_matches(MFM_train);
+	preamble_locations_calculated = true;
+	preamble_locations = preamble_search.find_matches(
+		MFM_train);
 }
 
 void decoder::decode(std::vector<char> & MFM_train) {
-	// First get the preamble locations.
-	std::vector<size_t> preamble_locations =
-		get_preamble_locations(MFM_train);
+	// First get the preamble locations. (Memoize)
+	if (!preamble_locations_calculated) {
+		calc_preamble_locations(MFM_train);
+	}
+
+	std::cout << "Sequences found: " << preamble_locations.size() << std::endl;
 
 	sector_data sd;
 
 	for (size_t i = 0; i < preamble_locations.size(); ++i) {
-		std::vector<char>::const_iterator pos = MFM_train.begin() +
-			preamble_locations[i];
-		std::vector<char>::const_iterator next_pos;
-		if (i < preamble_locations.size()-1) {
-			next_pos = MFM_train.begin() + preamble_locations[i+1];
-		} else {
-			next_pos = MFM_train.end();
-		}
+		std::vector<char>::const_iterator pos = get_pos_by_idx(
+			MFM_train, i), next_pos = get_pos_by_idx(MFM_train, i+1);
 
 		// Decode four bytes to determine what mark we're dealing
 		// with. (TODO? Iterators? but then what about error/OOB signaling?)
@@ -286,6 +319,26 @@ void decoder::decode(std::vector<char> & MFM_train) {
 	// then enough to get the data if any.
 	// We should probably carry through index markers for this, but
 	// it's pretty hard to do right...
+}
+
+void decoder::dump_to_file(std::vector<char> & MFM_train,
+	size_t start_location_idx, size_t stop_location_idx,
+	std::string data_filename, std::string error_filename) const {
+
+	if (!preamble_locations_calculated) {
+		throw std::runtime_error("Preambles not located yet");
+	}
+
+	sector_data sd;
+	sd.decode_MFM(get_pos_by_idx(MFM_train, start_location_idx),
+		get_pos_by_idx(MFM_train, stop_location_idx));
+
+	std::ofstream fout(data_filename, std::ios::out | std::ios::binary);
+	fout.write((char *)sd.decoded_data.data(), sd.decoded_data.size());
+	fout.close();
+	fout = std::ofstream(error_filename, std::ios::out | std::ios::binary);
+	fout.write((char *)sd.errors.data(), sd.errors.size());
+	fout.close();
 }
 
 

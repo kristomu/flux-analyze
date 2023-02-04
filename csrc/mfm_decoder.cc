@@ -65,22 +65,9 @@ int main() {
 
 		decoder IBM_decoder;
 
-		std::vector<size_t> a1_positions = IBM_decoder.get_preamble_locations(sequence);
-		std::cout << "Sequences found: " << a1_positions.size() << std::endl;
-		std::cout << std::endl;
-
-		sector_data sd;
-		sd.decode_MFM(sequence.begin() + a1_positions[1], sequence.begin()+a1_positions[2]);
-
-		std::ofstream fout("data.dat", std::ios::out | std::ios::binary);
-		fout.write((char *)sd.decoded_data.data(), sd.decoded_data.size());
-		fout.close();
-		fout = std::ofstream("errors.dat", std::ios::out | std::ios::binary);
-		fout.write((char *)sd.errors.data(), sd.errors.size());
-		fout.close();
-
 		IBM_decoder.decode(sequence);
-
+		IBM_decoder.dump_to_file(sequence, 1, 2, "data.dat", "errors.dat");
 	}
+
 	return 0;
 }
