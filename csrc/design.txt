@@ -21,6 +21,7 @@ These data structures are:
 		to deal with these later.)
 
 	Level two:
-		Floppy data: A class containing subclasses for the three types
+		Sector data: A class containing subclasses for the three types
 		of IBM MFM data chunks: IDAM, IAM, and DAM. (Not implemented
-		yet.)
+		yet.) Also does the MFM pulse train decoding itself; I might
+		split this later.

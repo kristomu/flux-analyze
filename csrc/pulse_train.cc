@@ -120,16 +120,21 @@ double infer_clock(const std::vector<int> & fluxes) {
 	double typical_delay = median(std::vector<int>({fluxes[0],
 		fluxes[f/3], fluxes[2*f/3]}));
 
-	// Create clock estimates based on this delay being exactly one
-	// clock, 1.5 or 2 clocks. Add some large value so that
-	// guess_intervals[i] ... [i+1] form intervals that together cover
-	// every plausible clock value (except when i=0, which we
-	// special-case below).
+	// Assuming a normal MFM encoding, this delay could either be
+	// one clock, 1.5 or 2 clocks. We'll test each hypothesis by
+	// finding the local optimal clock consistent with it; for that
+	// we need some intervals to search within.
+
+	// Create a representation of these intervals. Add some large
+	// value so that (guess_intervals[i] ... [i+1]) form intervals
+	// that together cover every plausible clock value (except when i=0,
+	// which we special-case below).
 	std::vector<double> guess_interval = {typical_delay,
 		typical_delay * 1.5, typical_delay * 2, typical_delay * 3};
 
 	// Take an even spread of 100 points to make error calculation
-	// much quicker.
+	// much quicker. XXX: It might be possible to make this very quick
+	// by using a histogram, try that later at some point???
 	size_t i, sample_size = 100;
 	std::vector<int> flux_sample;
 	if (fluxes.size() < sample_size) {
