@@ -177,6 +177,8 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 	}
 }
 
+const std::array<int, 4> IDAM_datalen = {128, 256, 512, 1024};
+
 class IDAM {		// ID Address Mark
 	public:
 		// ID Address Mark info. Note these are raw data
@@ -185,7 +187,76 @@ class IDAM {		// ID Address Mark
 
 		int track, head, sector, datalen;
 		unsigned short CRC;
+
+		// The address mark doesn't include this, but since we're only
+		// reading, we just check the validity of the CRC at read time.
+		bool CRC_OK = false;
+		bool truncated;
+
+		// By convention, the data starts at the IDAM preamble (A1A1A1FE)
+		void set_from_data(std::vector<unsigned char> & data);
 };
+
+
+// Reads off an unsigned value in most significant byte first format.
+unsigned int msb_to_int(const std::vector<unsigned char> & data,
+	std::vector<unsigned char>::const_iterator pos, int num_bytes) {
+
+	unsigned int out = 0;
+
+	for (int i = 0; i < num_bytes; ++i) {
+		if (pos == data.end()) { return out; } // early stopping
+		out <<= 8;
+		out += (int)*pos++;
+	}
+
+	return out;
+}
+
+unsigned int msb_to_int(const std::vector<unsigned char> & data,
+	size_t idx, int num_bytes) {
+	return msb_to_int(data, data.begin()+idx, num_bytes);
+}
+
+// https://stackoverflow.com/a/44947877/6183577
+// But as this is CCITT-CRC16, the initial CRC value is -1 (0xFFFF), not 0.
+unsigned short crc16(std::vector<unsigned char>::const_iterator start,
+	std::vector<unsigned char>::const_iterator end) {
+
+	short crc = -1;
+	char i;
+
+	for (auto pos = start; pos != end; ++pos) {
+		crc ^= (int)*pos << 8;
+		i = 8;
+		do {
+			if (crc & 0x8000) {
+				crc = crc << 1 ^ 0x1021;
+			} else {
+				crc = crc << 1;
+			}
+		} while (--i);
+	}
+
+	return crc;
+}
+
+void IDAM::set_from_data(std::vector<unsigned char> & data) {
+
+	track = msb_to_int(data, 4, 1);
+	head = msb_to_int(data, 5, 1);
+	sector = msb_to_int(data, 6, 1);
+
+	// Quick and dirty way to deal with out-of-bounds/corrupted values.
+	// Also do a lookup to IDAM_datalen to turn this into an actual data chunk
+	// length.
+	datalen = IDAM_datalen[msb_to_int(data, 7, 1) & 3];
+
+	CRC = msb_to_int(data, 8, 2);
+	CRC_OK = crc16(data.begin(), data.begin()+8) == CRC;
+
+	truncated = data.size() < 10;
+}
 
 class DAM {		// Data Address Mark
 	public:
@@ -212,9 +283,9 @@ class address_mark {
 	public:
 		address_mark_t mark_type;
 
-		IDAM idam_data;
-		IAM iam_data;
-		DAM dam_data, ddam_data;
+		IDAM idam;
+		IAM iam;
+		DAM dam, ddam;
 
 		// TODO? Some kind of reference of where this was located all
 		// the way back to the pulse train, so that we can cross off
@@ -306,6 +377,23 @@ void decoder::calc_preamble_locations(
 		MFM_train);
 }
 
+// This is getting very ugly and ripe for some serious refactoring.
+// But how?
+// Repeatedly calling decode_MFM is kind of ugly too, though on the other
+// hand, I can spare the decoding cost.
+
+// Decoding all the MFM stuff in one go is appealing because the decoder's
+// state (i.e. whether the last bit was 0 or 1) would then carry through.
+// On the other hand, decoding only what we need makes the mechanism more
+// flexible so that we could repair the chunks that fail to decode while
+// leaving all the other chunks alone. I don't think it matters much either
+// way; I just have to make a decision.
+
+// Looking at how Python did it may be instructive: it basically batch
+// decodes and then has one vector for errors and one for data. This would
+// also make it easy to count errors where there shouldn't be any (e.g. inside
+// data blocks).
+
 void decoder::decode(std::vector<char> & MFM_train) {
 	// First get the preamble locations. (Memoize)
 	if (!preamble_locations_calculated) {
@@ -336,6 +424,16 @@ void decoder::decode(std::vector<char> & MFM_train) {
 			case A_IDAM:
 				std::cout << "ID address mark at " <<
 					preamble_locations[i] << std::endl;
+				sd.decode_MFM(pos, next_pos, true, 10);
+				admark.idam.set_from_data(sd.decoded_data);
+				std::cout << "\ttrack: " << admark.idam.track << ", head: "
+					<< admark.idam.head << ", sector: " << admark.idam.sector
+					<< ", data len: " << admark.idam.datalen << " CRC: "
+					<< admark.idam.CRC << " ";
+				if (admark.idam.CRC_OK) { std::cout << "CRC OK"; } else {
+					std::cout << "CRC bad";
+				}
+				std::cout << "\n";
 				break;
 			case A_DAM:
 				std::cout << "Data address mark at " <<
