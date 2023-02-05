@@ -34,6 +34,8 @@
 // The following are given as bit sequences, i.e. *before* MFM decoding.
 // Hence we don't have to deal with detecting out-of-band errors.
 
+enum address_mark_t { A_IAM, A_IDAM, A_DAM, A_DDAM, A_UNKNOWN };
+
 class IBM_preamble {
 	public:
 		std::vector<char> short_A1 = {
@@ -177,13 +179,12 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 
 class IDAM {		// ID Address Mark
 	public:
+		// ID Address Mark info. Note these are raw data
+		// so e.g. datalen would be an index into a vector. TODO:
+		// Abstract that away, either here or in address_mark.
+
 		int track, head, sector, datalen;
 		unsigned short CRC;
-
-		bool truncated;
-
-		// TODO? Some kind of reference of where this was located all the way back to
-		// the pulse train, so that we can work by a process of elimination.
 };
 
 class DAM {		// Data Address Mark
@@ -201,14 +202,52 @@ class IAM {		// Index Address Mark
 		// any data or metadata.
 };
 
+// It's easier to put all the address mark types into one class
+// than deal with the problems of reconciling strong typing with a
+// list of different types of address marks. This is doubly true because
+// a Data Address Mark's metadata is listed in the IDAM that precedes it;
+// so we need to know the relative location of DAMs and IDAMs.
+
+class address_mark {
+	public:
+		address_mark_t mark_type;
+
+		IDAM idam_data;
+		IAM iam_data;
+		DAM dam_data, ddam_data;
+
+		// TODO? Some kind of reference of where this was located all
+		// the way back to the pulse train, so that we can cross off
+		// successfully decoded chunks and work by a process of
+		// elimination.
+
+		void set_address_mark(const std::vector<unsigned char> & header_bytes);
+
+};
+
+void address_mark::set_address_mark(const std::vector<unsigned char> & header_bytes) {
+	mark_type = A_UNKNOWN;
+	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {
+		mark_type = A_IAM;
+	}
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFE})) {
+		mark_type = A_IDAM;
+	}
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFB})) {
+		mark_type = A_DAM;
+	}
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF8})) {
+		mark_type = A_DDAM;
+	}
+}
+
+
 class decoder {
 	private:
 		IBM_preamble preambles;
 		rabin_karp preamble_search;
 
-		std::vector<DAM> DAMs;
-		std::vector<IDAM> IDAMs;
-		std::vector<IAM> IAMs;
+		std::vector<address_mark> address_marks;
 
 		// TODO later: something that keeps this cache from going
 		// stale if the user inputs one MFM train when doing calc_preamble,
@@ -287,30 +326,29 @@ void decoder::decode(std::vector<char> & MFM_train) {
 
 		// TODO: Move into IBM_preamble, make it return an enum so we can use
 		// switch/case or something nicer.
-		bool identified = false;
-		if(sd.decoded_data == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {
-			std::cout << "Index address mark at " <<
-				preamble_locations[i] << std::endl;
-			identified = true;
-		}
-		if(sd.decoded_data == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFE})) {
-			std::cout << "ID address mark at " <<
-				preamble_locations[i] << std::endl;
-			identified = true;
-		}
-		if(sd.decoded_data == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFB})) {
-			std::cout << "Data address mark at " <<
-				preamble_locations[i] << std::endl;
-			identified = true;
-		}
-		if(sd.decoded_data == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF8})) {
-			std::cout << "Deleted data address mark at " <<
-				preamble_locations[i] << std::endl;
-			identified = true;
-		}
-		if (!identified) {
-			std::cout << "???? Something else at " <<
-				preamble_locations[i] << std::endl;
+		address_mark admark;
+		admark.set_address_mark(sd.decoded_data);
+		switch(admark.mark_type) {
+			case A_IAM:
+				std::cout << "Index address mark at " <<
+					preamble_locations[i] << std::endl;
+				break;
+			case A_IDAM:
+				std::cout << "ID address mark at " <<
+					preamble_locations[i] << std::endl;
+				break;
+			case A_DAM:
+				std::cout << "Data address mark at " <<
+					preamble_locations[i] << std::endl;
+				break;
+			case A_DDAM:
+				std::cout << "Deleted data address mark at " <<
+					preamble_locations[i] << std::endl;
+				break;
+			default:
+				std::cout << "???? Something else at " <<
+					preamble_locations[i] << std::endl;
+				break;
 		}
 	}
 	// Then decode four bytes to determine the mark
