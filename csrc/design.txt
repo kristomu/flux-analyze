@@ -25,3 +25,9 @@ These data structures are:
 		of IBM MFM data chunks: IDAM, IAM, and DAM. (Not implemented
 		yet.) Also does the MFM pulse train decoding itself; I might
 		split this later.
+
+		Raw bytes: The "serialized" data corresponding to some address
+		mark. To be distinguished from just "data", which, particularly
+		in the context of DAM and DDAM, refer to the data portion of
+		the address mark (i.e. the actual data stored on the floppy,
+		not metadata).

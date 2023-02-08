@@ -177,7 +177,10 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 	}
 }
 
-const std::array<int, 4> IDAM_datalen = {128, 256, 512, 1024};
+// http://nerdlypleasures.blogspot.com/2015/11/ibm-pc-floppy-disks-deeper-look-at-disk.html
+const int MAX_DATALEN_IDX = 6;
+const std::array<int, MAX_DATALEN_IDX+1> IDAM_datalen = {
+	128, 256, 512, 1024, 2048, 4096, 8192};
 
 class IDAM {		// ID Address Mark
 	public:
@@ -193,8 +196,8 @@ class IDAM {		// ID Address Mark
 		bool CRC_OK = false;
 		bool truncated;
 
-		// By convention, the data starts at the IDAM preamble (A1A1A1FE)
-		void set_from_data(std::vector<unsigned char> & data);
+		// By convention, the raw bytes start at the IDAM preamble (A1A1A1FE).
+		void set(std::vector<unsigned char> & raw_bytes);
 };
 
 
@@ -223,8 +226,7 @@ unsigned int msb_to_int(const std::vector<unsigned char> & data,
 unsigned short crc16(std::vector<unsigned char>::const_iterator start,
 	std::vector<unsigned char>::const_iterator end) {
 
-	short crc = -1;
-	char i;
+	short i, crc = -1;
 
 	for (auto pos = start; pos != end; ++pos) {
 		crc ^= (int)*pos << 8;
@@ -241,31 +243,45 @@ unsigned short crc16(std::vector<unsigned char>::const_iterator start,
 	return crc;
 }
 
-void IDAM::set_from_data(std::vector<unsigned char> & data) {
+void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 
-	track = msb_to_int(data, 4, 1);
-	head = msb_to_int(data, 5, 1);
-	sector = msb_to_int(data, 6, 1);
+	track = raw_bytes[4];
+	head = raw_bytes[5];
+	sector = raw_bytes[6];
 
 	// Quick and dirty way to deal with out-of-bounds/corrupted values.
 	// Also do a lookup to IDAM_datalen to turn this into an actual data chunk
 	// length.
-	datalen = IDAM_datalen[msb_to_int(data, 7, 1) & 3];
+	datalen = IDAM_datalen[std::min((int)raw_bytes[7], MAX_DATALEN_IDX)];
 
-	CRC = msb_to_int(data, 8, 2);
-	CRC_OK = crc16(data.begin(), data.begin()+8) == CRC;
+	CRC = msb_to_int(raw_bytes, 8, 2);
+	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin()+8) == CRC;
 
-	truncated = data.size() < 10;
+	truncated = raw_bytes.size() < 10;
 }
 
-class DAM {		// Data Address Mark
+class DAM {		// Data Address Mark (also used for Deleted Data)
 	public:
 		std::vector<char> data;
 		unsigned short CRC;
 
 		// Auxiliary info
 		bool CRC_OK;
+		bool deleted; // Is it a DAM or a DDAM?
+
+		void set(std::vector<unsigned char> & raw_bytes, int datalen);
 };
+
+void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
+
+	deleted = (raw_bytes[3] == 0xF8);
+	data = std::vector<char>(raw_bytes.begin() + 4,
+		raw_bytes.begin() + 4 + datalen);
+
+	CRC = msb_to_int(raw_bytes, raw_bytes.begin() + 4 + datalen, 2);
+	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin() + 4 + datalen) == CRC;
+
+}
 
 class IAM {		// Index Address Mark
 	public:
@@ -404,6 +420,15 @@ void decoder::decode(std::vector<char> & MFM_train) {
 
 	sector_data sd;
 
+	int CRC_failures = 0;
+
+	// Then decode four bytes to determine the mark
+	// we're dealing with.
+	// Then decode enough bytes to get the header,
+	// then enough to get the data if any.
+	// We should probably carry through index markers for this, but
+	// it's pretty hard to do right...
+
 	for (size_t i = 0; i < preamble_locations.size(); ++i) {
 		std::vector<char>::const_iterator pos = get_pos_by_idx(
 			MFM_train, i), next_pos = get_pos_by_idx(MFM_train, i+1);
@@ -412,8 +437,6 @@ void decoder::decode(std::vector<char> & MFM_train) {
 		// with. (TODO? Iterators? but then what about error/OOB signaling?)
 		sd.decode_MFM(pos, next_pos, true, 4);
 
-		// TODO: Move into IBM_preamble, make it return an enum so we can use
-		// switch/case or something nicer.
 		address_mark admark;
 		admark.set_address_mark(sd.decoded_data);
 		switch(admark.mark_type) {
@@ -425,12 +448,13 @@ void decoder::decode(std::vector<char> & MFM_train) {
 				std::cout << "ID address mark at " <<
 					preamble_locations[i] << std::endl;
 				sd.decode_MFM(pos, next_pos, true, 10);
-				admark.idam.set_from_data(sd.decoded_data);
+				admark.idam.set(sd.decoded_data);
 				std::cout << "\ttrack: " << admark.idam.track << ", head: "
 					<< admark.idam.head << ", sector: " << admark.idam.sector
 					<< ", data len: " << admark.idam.datalen << " CRC: "
 					<< admark.idam.CRC << " ";
 				if (admark.idam.CRC_OK) { std::cout << "CRC OK"; } else {
+					++ CRC_failures;
 					std::cout << "CRC bad";
 				}
 				std::cout << "\n";
@@ -438,10 +462,33 @@ void decoder::decode(std::vector<char> & MFM_train) {
 			case A_DAM:
 				std::cout << "Data address mark at " <<
 					preamble_locations[i] << std::endl;
+				// The stuff below is a giant hack based on that floppy
+				// sectors are usually 512 bytes. I really need to
+				// mass decode either every address mark region or
+				// the whole record instead of decoding piecemeal.
+				// Decoding region wise has the benefit that an MFM
+				// error will only propagate so far, even in the worst
+				// case. I also need to somehow connect DAM and DDAMs
+				// with their preceding IDAMs.
+				sd.decode_MFM(pos, next_pos, true, 548);
+				admark.dam.set(sd.decoded_data, 512);
+				std::cout << "\tCRC: " << admark.dam.CRC << " ";
+				if (admark.dam.CRC_OK) { std::cout << "CRC OK\n"; } else {
+					std::cout << "CRC bad\n";
+					++ CRC_failures;
+				}
 				break;
 			case A_DDAM:
 				std::cout << "Deleted data address mark at " <<
 					preamble_locations[i] << std::endl;
+				// See above.
+				sd.decode_MFM(pos, next_pos, true, 548);
+				admark.ddam.set(sd.decoded_data, 512);
+				std::cout << "\tCRC: " << admark.ddam.CRC << " ";
+				if (admark.ddam.CRC_OK) { std::cout << "CRC OK\n"; } else {
+					std::cout << "CRC bad\n";
+					++ CRC_failures;
+				}
 				break;
 			default:
 				std::cout << "???? Something else at " <<
@@ -449,12 +496,8 @@ void decoder::decode(std::vector<char> & MFM_train) {
 				break;
 		}
 	}
-	// Then decode four bytes to determine the mark
-	// we're dealing with.
-	// Then decode enough bytes to get the header,
-	// then enough to get the data if any.
-	// We should probably carry through index markers for this, but
-	// it's pretty hard to do right...
+
+	std::cout << "CRC failures: " << CRC_failures << std::endl;
 }
 
 void decoder::dump_to_file(std::vector<char> & MFM_train,
