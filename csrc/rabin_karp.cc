@@ -93,7 +93,7 @@ std::vector<size_t> rabin_karp::find_matches(
 		// Wraparound might be a problem here... check later
 		if (i >= min_needle_length) {
 			search_hash -= (leading_char_eliminator * 
-				haystack[i-min_needle_length]) % modulus;
+				(unsigned char)haystack[i-min_needle_length]) % modulus;
 
 			if (search_hash < 0) {
 				search_hash += modulus;
@@ -177,4 +177,17 @@ void test_rabin_karp() {
 		throw std::logic_error("Rabin-Karp test: unexpected output"
 			" with two needles.");
 	}
+
+	// Test negative values.
+	/*std::vector<char> haystack_nv = {-1, -1, 0, 1, 1, -1, 0, -1},
+		needle_nv = {1, 1, -1, 0, -1};*/
+	std::vector<char> haystack_nv = {-1, -1, 0, 1, 1, -1, 0, -1},
+		needle_nv = {1, 1, -1, 0, -1};
+	rk = rabin_karp(needle_nv);
+
+	if (!vec_eq(rk.find_matches(haystack_nv), {3})) {
+		throw std::logic_error("Rabin-Karp test: could not find needle"
+			" with negative values.");
+	}
+
 }
