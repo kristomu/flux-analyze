@@ -5,6 +5,8 @@
 
 #include <iostream>
 
+#include "pulse_train.h"
+
 // Turn a flux record vector into an MFM pulse train by comparing the distance
 // between flux reversals. Our job is made more difficult because apparently
 // the mapping is nonlinear: one clock length corresponds to 01, 1.5 clock
@@ -15,8 +17,9 @@
 // floppies with the right clock.
 
 // The error_out double is set to a badness-of-fit value: the higher the worse.
-// This might be usable as a very quick clock inference method, but I'll have to
-// test more before I know for sure.
+// It is used as a quick and dirty clock inference method (see below), but
+// is more useful for debugging (e.g. when I implement dewarping, it could
+// show how well the signal has been dewarped).
 
 // In addition, the nonlinearity might save us sometimes: suppose that we have an
 // interval of 2.5 clocks. Then it's likely that this is either one clock followed
@@ -25,8 +28,6 @@
 // this working on normal images.
 
 // Level one:
-
-typedef std::vector<char> MFM_train_t;
 
 MFM_train_t get_MFM_train(double clock,
 		const std::vector<int> & fluxes, double & error_out) {
@@ -78,9 +79,10 @@ double get_MFM_train_error(double clock, const std::vector<int> & fluxes) {
 }
 
 // Baseline inference for clocks. This should be very quick and work for
-// most non-corrupted floppies. The way this works is that it takes the
-// median of three flux delays, then checks the best error it can gets
-// by assuming that delay roughly corresponds to one, 1.5, or 2 clocks.
+// most non-corrupted floppies without warping. The way this works is that
+// it takes the median of three flux delays, then checks the best error it
+// can get by assuming that delay roughly corresponds to one, 1.5,
+// or 2 clocks.
 
 template<typename T> double median(std::vector<T> vec) {
 	// This will only be called for small vectors, so just sort.
@@ -117,11 +119,13 @@ double get_local_clock_optimum(double left, double right,
 	}
 }
 
-double infer_clock(const std::vector<int> & fluxes) {
+double infer_clock(std::vector<int>::const_iterator fluxes_start,
+	std::vector<int>::const_iterator fluxes_end) {
+
 	// First find some typical delay by sampling evenly.
-	size_t f = fluxes.size();
-	double typical_delay = median(std::vector<int>({fluxes[0],
-		fluxes[f/3], fluxes[2*f/3]}));
+	size_t f = fluxes_end - fluxes_start;
+	double typical_delay = median(std::vector<int>(
+		{fluxes_start[0], fluxes_start[f/3], fluxes_start[2*f/3]}));
 
 	// Assuming a normal MFM encoding, this delay could either be
 	// one clock, 1.5 or 2 clocks. We'll test each hypothesis by
@@ -138,13 +142,13 @@ double infer_clock(const std::vector<int> & fluxes) {
 	// Take an even spread of 100 points to make error calculation
 	// much quicker. XXX: It might be possible to make this very quick
 	// by using a histogram, try that later at some point???
-	size_t i, sample_size = 100;
+	size_t i, sample_size = 100, data_size = f;
 	std::vector<int> flux_sample;
-	if (fluxes.size() < sample_size) {
-		flux_sample = fluxes;
+	if (data_size < sample_size) {
+		flux_sample = std::vector<int>(fluxes_start, fluxes_end);
 	} else {
-		for (i = 0; i < fluxes.size(); i += fluxes.size()/sample_size) {
-			flux_sample.push_back(fluxes[i]);
+		for (i = 0; i < data_size; i += data_size/sample_size) {
+			flux_sample.push_back(fluxes_start[i]);
 		}
 	}
 
@@ -167,4 +171,8 @@ double infer_clock(const std::vector<int> & fluxes) {
 	}
 
 	return record_clock;
+}
+
+double infer_clock(const std::vector<int> & fluxes) {
+	return infer_clock(fluxes.begin(), fluxes.end());
 }
