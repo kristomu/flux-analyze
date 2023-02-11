@@ -2,6 +2,7 @@
 #include <fstream>
 #include <vector>
 
+#include "pulse_train.h"
 #include "rabin_karp.h"
 #include "preambles.h"
 
@@ -330,11 +331,11 @@ class decoder {
 	public:
 		decoder();
 
-		void calc_preamble_locations(std::vector<char> & MFM_train);
-		void decode(std::vector<char> & MFM_train);
+		void calc_preamble_locations(const MFM_train_data & MFM_train);
+		void decode(const MFM_train_data & MFM_train);
 
 		// For debugging.
-		void dump_to_file(std::vector<char> & MFM_train,
+		void dump_to_file(const MFM_train_data & MFM_train,
 			size_t start_location_idx,
 			size_t stop_location_idx,
 			std::string data_filename,
@@ -351,11 +352,11 @@ decoder::decoder() : preambles(), preamble_search(preambles.A1_sequence) {
 
 
 void decoder::calc_preamble_locations(
-	std::vector<char> & MFM_train) {
+	const MFM_train_data & MFM_train) {
 
 	preamble_locations_calculated = true;
 	preamble_locations = preamble_search.find_matches(
-		MFM_train);
+		MFM_train.data);
 }
 
 // This is getting very ugly and ripe for some serious refactoring.
@@ -375,7 +376,7 @@ void decoder::calc_preamble_locations(
 // also make it easy to count errors where there shouldn't be any (e.g. inside
 // data blocks).
 
-void decoder::decode(std::vector<char> & MFM_train) {
+void decoder::decode(const MFM_train_data & MFM_train) {
 	// First get the preamble locations. (Memoize)
 	if (!preamble_locations_calculated) {
 		calc_preamble_locations(MFM_train);
@@ -396,7 +397,7 @@ void decoder::decode(std::vector<char> & MFM_train) {
 
 	for (size_t i = 0; i < preamble_locations.size(); ++i) {
 		std::vector<char>::const_iterator pos = get_pos_by_idx(
-			MFM_train, i), next_pos = get_pos_by_idx(MFM_train, i+1);
+			MFM_train.data, i), next_pos = get_pos_by_idx(MFM_train.data, i+1);
 
 		// Decode four bytes to determine what mark we're dealing
 		// with. (TODO? Iterators? but then what about error/OOB signaling?)
@@ -465,7 +466,7 @@ void decoder::decode(std::vector<char> & MFM_train) {
 	std::cout << "CRC failures: " << CRC_failures << std::endl;
 }
 
-void decoder::dump_to_file(std::vector<char> & MFM_train,
+void decoder::dump_to_file(const MFM_train_data & MFM_train,
 	size_t start_location_idx, size_t stop_location_idx,
 	std::string data_filename, std::string error_filename) const {
 
@@ -474,8 +475,8 @@ void decoder::dump_to_file(std::vector<char> & MFM_train,
 	}
 
 	sector_data sd;
-	sd.decode_MFM(get_pos_by_idx(MFM_train, start_location_idx),
-		get_pos_by_idx(MFM_train, stop_location_idx));
+	sd.decode_MFM(get_pos_by_idx(MFM_train.data, start_location_idx),
+		get_pos_by_idx(MFM_train.data, stop_location_idx));
 
 	std::ofstream fout(data_filename, std::ios::out | std::ios::binary);
 	fout.write((char *)sd.decoded_data.data(), sd.decoded_data.size());

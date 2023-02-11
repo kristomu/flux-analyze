@@ -92,7 +92,7 @@ int main() {
 
 			double error;
 
-			std::vector<char> sequence = get_MFM_train(m.estimated_clock,
+			MFM_train_data sequence = get_MFM_train(m.estimated_clock,
 					f.fluxes, start_idx, end_idx, error);
 
 			IBM_decoder.decode(sequence);
