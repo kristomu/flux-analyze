@@ -93,33 +93,30 @@ std::vector<size_t> rabin_karp::find_matches(
 
 	std::vector<size_t> match_indices;
 
-	for (size_t i = 0; i < haystack.size(); ++i) {
-		search_hash = (search_hash * factor + 
-			(unsigned char)haystack[i]) % modulus;
+	// The boundary conditions for this loop are tricky. When we
+	// enter the loop with some value of i, that means that every
+	// byte before i has been hashed. So a needle whose last byte
+	// is at position i-1 will now be detected - this needle has
+	// length j and starts at i-j. (E.g. length 8, detected at i=8,
+	// starts at 0.) Hence we need one extra round through the loop
+	// to detect any needles at exactly the end of the haystack.
 
-		// Wraparound might be a problem here... check later
-		if (i >= min_needle_length) {
-			search_hash -= (leading_char_eliminator * 
-				(unsigned char)haystack[i-min_needle_length]) % modulus;
-
-			if (search_hash < 0) {
-				search_hash += modulus;
-			}
-		}
+	for (size_t i = 0; i <= haystack.size(); ++i) {
 
 		// If we're far enough that a needle could exist - and we have
 		// a hash match, then there might be a match ending in this
 		// position.
-		if (i + 1 >= min_needle_length &&
+		if (i >= min_needle_length &&
 			needles_by_hash.find(search_hash) != needles_by_hash.end()) {
 
-			// The +1 is because after the inclusion of the current
-			// character above, our "cursor" is now at the character
-			// after this one.
 			auto needle_ref = needles_by_hash.find(
 				search_hash);
 
-			size_t start_pos = i + 1 - needle_ref->second.size();
+			if (needle_ref->second.size() > i) {
+				continue; // Needle is too long to fit.
+			}
+
+			size_t start_pos = i - needle_ref->second.size();
 
 			if (!brute_force_search(haystack.begin() + start_pos,
 				haystack.end(), needle_ref->second)) {
@@ -127,6 +124,23 @@ std::vector<size_t> rabin_karp::find_matches(
 			}
 
 			match_indices.push_back(start_pos);
+		}
+
+		// If we're at the end of the haystack, don't add any more
+		// bytes.
+		if (i == haystack.size()) { continue; }
+
+		search_hash = (search_hash * factor +
+			(unsigned char)haystack[i]) % modulus;
+
+		// Wraparound might be a problem here... check later
+		if (i >= min_needle_length) {
+			search_hash -= (leading_char_eliminator *
+				(unsigned char)haystack[i-min_needle_length]) % modulus;
+
+			if (search_hash < 0) {
+				search_hash += modulus;
+			}
 		}
 	}
 
