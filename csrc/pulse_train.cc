@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <limits>
 #include <vector>
-#include <cmath>
 
 #include <iostream>
 
@@ -31,7 +30,8 @@
 // Level one:
 
 MFM_train_t get_MFM_train(double clock,
-		const std::vector<int> & fluxes, double & error_out) {
+		const std::vector<int> & fluxes, size_t start_pos,
+		size_t end_pos, double & error_out) {
 
 	MFM_train_t sequence_bits;
 	// expected number of bits per reversal, including ones.
@@ -40,12 +40,13 @@ MFM_train_t get_MFM_train(double clock,
 
 	error_out = 0;
 
-	for (auto flux_delay: fluxes) {
+	for (size_t i = start_pos; i < end_pos; ++i) {
 		// We'll model the nonlinearity like this:
 		//		- There's always half a clock's delay before anything happens.
 		//		- Then one zero corresponds to half a clock more, two zeroes is
 		//			two halves more, and three zeroes is three, and so on.
 
+		int flux_delay = fluxes[i];
 		double half_clocks = (flux_delay*2)/clock;
 
 		// Subtract the constant half-clock offset of one, then round the next
@@ -70,6 +71,12 @@ MFM_train_t get_MFM_train(double clock,
 	error_out = std::sqrt(error_out / fluxes.size());
 
 	return sequence_bits;
+}
+
+MFM_train_t get_MFM_train(double clock,
+		const std::vector<int> & fluxes, double & error_out) {
+
+	return get_MFM_train(clock, fluxes, 0, fluxes.size(), error_out);
 }
 
 double get_MFM_train_error(double clock, const std::vector<int> & fluxes) {
