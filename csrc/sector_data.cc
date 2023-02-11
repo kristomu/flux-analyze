@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "rabin_karp.h"
+#include "preambles.h"
 
 // Level two.
 
@@ -23,43 +24,7 @@
 // contains a deliberate error to signal out-of-band that it's an address
 // mark, not ordinary data.
 
-// To find these magic preambles, which we need to find the address marks,
-// let's first define some auxiliary classes.
-
-// Because we want to be robust, we're going to only search for the short
-// MFM sequences; we don't make any assumptions about the gap data that
-// precedes them, even though real world floppies usually have padding that
-// helps the phase-locked loop lock on.
-
-// The following are given as bit sequences, i.e. *before* MFM decoding.
-// Hence we don't have to deal with detecting out-of-band errors.
-
 enum address_mark_t { A_IAM, A_IDAM, A_DAM, A_DDAM, A_UNKNOWN };
-
-class IBM_preamble {
-	public:
-		std::vector<char> short_A1 = {
-			0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1};
-		std::vector<char> short_C2 = {
-			0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0};
-		std::vector<char> A1_sequence, C2_sequence;
-
-		IBM_preamble();
-};
-
-IBM_preamble::IBM_preamble() {
-	// The A1 sequence is the short A1 repeated three times,
-	// and ditto for the C2 sequence.
-
-	A1_sequence.reserve(3 * short_A1.size());
-	C2_sequence.reserve(3 * short_C2.size());
-	for (int i = 0; i < 3; ++i) {
-		std::copy(short_A1.begin(), short_A1.end(),
-			std::back_inserter(A1_sequence));
-		std::copy(short_C2.begin(), short_C2.end(),
-			std::back_inserter(C2_sequence));
-	}
-}
 
 // I kind of feel like this class is doing double duty... some of its contents
 // ought to be de facto singletons, but I can't quite see how to do it

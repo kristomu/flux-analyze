@@ -18,11 +18,7 @@
 
 #include "pulse_train.h"
 #include "sector_data.cc"
-
-// https://stackoverflow.com/a/14612943
-int sign(int x) {
-	return (x > 0) - (x < 0);
-}
+#include "tools.h"
 
 // PROCESSING
 
@@ -51,7 +47,23 @@ int main() {
 
 	// Some preliminary testing goes here.
 
+	// Quick and dirty ordinal search experiments
+	IBM_preamble pram;
+	rabin_karp ordinal_preamble_search(pram.ordinal_A1_sequence);
+	ordinal_preamble_search.add(pram.ordinal_C2_sequence);
+
 	for (const flux_record & f: flux_records) {
+
+		// Quick and dirty ordinal search experiments,
+		// currently returns just about exactly twice the number
+		// of locations as the "direct" way of guessing the
+		// clock then searching.
+		std::vector<char> ordinal_flux = delta_code(f.fluxes);
+		std::vector<size_t> ordinal_locations =
+			ordinal_preamble_search.find_matches(ordinal_flux);
+
+		// TODO: Clock clustering to weed out false positives.
+
 		double error;
 
 		double clock = infer_clock(f.fluxes);
