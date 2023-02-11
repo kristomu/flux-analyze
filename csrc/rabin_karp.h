@@ -31,6 +31,7 @@ class rabin_karp {
 		hash_int leading_char_eliminator;
 
 		bool brute_force_search(std::vector<char>::const_iterator pos,
+			std::vector<char>::const_iterator end,
 			const std::vector<char> & needle) const;
 
 	public:

@@ -8,6 +8,7 @@
 
 #include "rabin_karp.h"
 
+#include <iostream>
 #include <vector>
 #include <algorithm>
 #include <stdexcept>
@@ -16,10 +17,11 @@
 // Returns true if there's a needle from pos onwards, false
 // otherwise. It assumes the haystack is large enough.
 bool rabin_karp::brute_force_search(std::vector<char>::const_iterator pos,
+	std::vector<char>::const_iterator end,
 	const std::vector<char> & needle) const {
 
 	for (char c: needle) {
-		if (c != *pos++) {
+		if (pos == end || c != *pos++) {
 			return false;
 		}
 	}
@@ -105,7 +107,12 @@ std::vector<size_t> rabin_karp::find_matches(
 			}
 		}
 
-		if (needles_by_hash.find(search_hash) != needles_by_hash.end()) {
+		// If we're far enough that a needle could exist - and we have
+		// a hash match, then there might be a match ending in this
+		// position.
+		if (i + 1 >= min_needle_length &&
+			needles_by_hash.find(search_hash) != needles_by_hash.end()) {
+
 			// The +1 is because after the inclusion of the current
 			// character above, our "cursor" is now at the character
 			// after this one.
@@ -115,7 +122,7 @@ std::vector<size_t> rabin_karp::find_matches(
 			size_t start_pos = i + 1 - needle_ref->second.size();
 
 			if (!brute_force_search(haystack.begin() + start_pos,
-				needle_ref->second)) {
+				haystack.end(), needle_ref->second)) {
 				continue;
 			}
 
