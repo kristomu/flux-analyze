@@ -6,6 +6,7 @@
 #include <iostream>
 
 #include "pulse_train.h"
+#include "tools.h"
 
 // Turn a flux record vector into an MFM pulse train by comparing the distance
 // between flux reversals. Our job is made more difficult because apparently
@@ -83,18 +84,6 @@ double get_MFM_train_error(double clock, const std::vector<int> & fluxes) {
 // it takes the median of three flux delays, then checks the best error it
 // can get by assuming that delay roughly corresponds to one, 1.5,
 // or 2 clocks.
-
-template<typename T> double median(std::vector<T> vec) {
-	// This will only be called for small vectors, so just sort.
-	std::sort(vec.begin(), vec.end());
-
-	if (vec.size() % 2 == 0) {
-		return 0.5 * (vec[vec.size()/2-1] + vec[vec.size()/2]);
-	} else {
-		return vec[vec.size()/2];
-	}
-}
-
 
 // Ternary search. Fibonacci would be more efficient but also
 // a lot more code.

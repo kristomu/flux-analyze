@@ -18,10 +18,16 @@
 #include "tools.h"
 #include <vector>
 
+struct match_with_clock {
+	size_t match_location;
+	double estimated_clock;
+};
+
 // Returns the sign values of successive differences, e.g. 
 // 3 2 2 3 becomes -1 0 1.
 
-template<typename T> std::vector<char> delta_code(const T & in_vector) {
+template<typename T> std::vector<char> get_delta_coding(
+	const T & in_vector) {
 	std::vector<char> out;
 
 	for (size_t i = 1; i < in_vector.size(); ++i) {
@@ -32,4 +38,15 @@ template<typename T> std::vector<char> delta_code(const T & in_vector) {
 }
 
 std::vector<char> get_ordinal_search_sequence(
+	const std::vector<char> & MFM_train_search_sequence);
+
+double get_clock(const std::vector<char> & MFM_train_search_sequence,
+	std::vector<int>::const_iterator match_start,
+	std::vector<int>::const_iterator fluxes_end);
+
+// This filters out a bunch of possible false positives.
+
+std::vector<match_with_clock> filter_matches(
+	const std::vector<int> & flux_transitions,
+	const std::vector<size_t> & possible_match_locations,
 	const std::vector<char> & MFM_train_search_sequence);

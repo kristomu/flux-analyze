@@ -58,11 +58,19 @@ int main() {
 		// currently returns just about exactly twice the number
 		// of locations as the "direct" way of guessing the
 		// clock then searching.
-		std::vector<char> ordinal_flux = delta_code(f.fluxes);
+		std::vector<char> ordinal_flux = get_delta_coding(f.fluxes);
 		std::vector<size_t> ordinal_locations =
 			ordinal_preamble_search.find_matches(ordinal_flux);
+		std::vector<match_with_clock> matches =
+			filter_matches(f.fluxes, ordinal_locations,
+				std::vector<char>(pram.A1_sequence.begin()+1,
+				pram.A1_sequence.end()));
+		for (match_with_clock m: matches) {
+			std::cout << "Found " << m.match_location << " with clock " <<
+				m.estimated_clock << std::endl;
+		}
 
-		// TODO: Clock clustering to weed out false positives.
+		return 0;
 
 		double error;
 
