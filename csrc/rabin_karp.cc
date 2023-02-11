@@ -68,12 +68,17 @@ void rabin_karp::add(const std::vector<char> & needle) {
 		start = 0;
 	}
 
-	// XXX: If two needles happen to have the same hash,
-	// we won't match every needle. Fix later.
-
 	for (size_t i = start; i < needle.size(); ++i) {
 		needle_hash = (needle_hash * factor + 
 			(unsigned char)needle[i]) % modulus;
+	}
+
+	// XXX: If two needles happen to have the same hash,
+	// we won't match every needle. Fix later if necessary.
+
+	if (needles_by_hash.find(needle_hash) != needles_by_hash.end()) {
+		throw std::invalid_argument("Rabin-Karp: Multiple "
+			"strings with same hash not supported!");
 	}
 
 	needles_by_hash[needle_hash] = needle;
@@ -179,8 +184,6 @@ void test_rabin_karp() {
 	}
 
 	// Test negative values.
-	/*std::vector<char> haystack_nv = {-1, -1, 0, 1, 1, -1, 0, -1},
-		needle_nv = {1, 1, -1, 0, -1};*/
 	std::vector<char> haystack_nv = {-1, -1, 0, 1, 1, -1, 0, -1},
 		needle_nv = {1, 1, -1, 0, -1};
 	rk = rabin_karp(needle_nv);
