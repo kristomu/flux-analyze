@@ -20,6 +20,8 @@
 #include "sector_data.cc"
 #include "tools.h"
 
+#include "dewarp_test.cc"
+
 // PROCESSING
 
 /* And then the plan is something like:
@@ -54,19 +56,43 @@ int main() {
 
 	decoder IBM_decoder;
 
+	bool try_dewarp = false; // toggle this, recompile, and then check
+	// the number of detected preambles.
+
 	for (const flux_record & f: flux_records) {
 
+		std::vector<int> fluxes = f.fluxes;
+
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
+
+		if (try_dewarp) {
+			std::cout << "Simple dewarp test" << std::endl;
+
+			double dewarp_error = 1e9;
+			int recordholder = -1;
+
+			for (int i = 1; i < 40; ++i) {
+				double error_here = test_dewarp(fluxes, i);
+				std::cout << i << ", " << error_here << std::endl;
+				if (error_here < dewarp_error) {
+					dewarp_error = error_here;
+					recordholder = i;
+				}
+			}
+
+			std::cout << "Record achieved at clock " << recordholder << std::endl;
+			fluxes = get_dewarped(fluxes, recordholder);
+		}
 
 		// Get locations/offsets into the flux where a magic preamble (A1A1A1
 		// or C2C2C2) might be found. Currently only A1A1A1 until I get
 		// Rabin-Karp to report match type.
 
-		std::vector<char> ordinal_flux = get_delta_coding(f.fluxes);
+		std::vector<char> ordinal_flux = get_delta_coding(fluxes);
 		std::vector<size_t> ordinal_locations =
 			ordinal_preamble_search.find_matches(ordinal_flux);
 		std::vector<match_with_clock> matches =
-			filter_matches(f.fluxes, ordinal_locations,
+			filter_matches(fluxes, ordinal_locations,
 				std::vector<char>(pram.A1_sequence.begin()+1,
 				pram.A1_sequence.end()));
 
@@ -81,7 +107,7 @@ int main() {
 			// prefer to make this more elegant, but I'm not quite sure how.
 			// TODO?
 			size_t start_idx = matches[j].match_location - 1,
-				end_idx = f.fluxes.size();
+				end_idx = fluxes.size();
 
 			if (j < matches.size()-1) {
 				end_idx = matches[j+1].match_location;
@@ -93,7 +119,7 @@ int main() {
 			double error;
 
 			std::vector<char> sequence = get_MFM_train(m.estimated_clock,
-					f.fluxes, start_idx, end_idx, error);
+					fluxes, start_idx, end_idx, error);
 
 			IBM_decoder.decode(sequence);
 			IBM_decoder.dump_to_file(sequence, 1, 2, "data.dat", "errors.dat");

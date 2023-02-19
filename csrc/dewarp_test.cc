@@ -5,7 +5,19 @@ double sqr(double x) {
 	return x*x;
 }
 
-double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
+// Returns either an error measure or denoises a flux signal, both according
+// to the given clock estimate. See comments below about the algorithm used.
+// Passing parameters like this is kind of ugly, but since there's so much
+// repeated logic, doing it as two functions would be worse.
+
+// For some reason, it's now 2x slower.
+
+// And it doesn't actually dewarp the warped MS Plus floppy. I'll have to
+// check if this can be salvaged, although I'm more likely to just steal
+// the PLL dewarp from Python with various guesses at the clock estimate.
+
+double test_dewarp(const std::vector<int> & fluxes, double clock_estimate,
+	bool return_denoised_signal, std::vector<int> & denoised_signal) {
 	// Try to remove low frequency variation in fluxes (due to uneven surface
 	// or similar). This uses the model that
 
@@ -51,25 +63,33 @@ double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
 		double penalty_so_far;
 		double e_i;
 		int p_i_choice;
+		int last_p_i_choice;
 	};
 
 	const int min_p_i = 2, max_p_i = 6;
 
 	// The dynamic programming mechanism needs a record of the
 	// penalties (and associated error values) for the last round
-	// as well as for the current round.
+	// as well as for the current round, so allocate two rows of penalty
+	// records - one for the old and one for the new.
 
 	// Actually getting the e_i values will require a full array
-	// of max_p_i * fluxes.size(), do that later.
+	// of max_p_i * fluxes.size(), so if return_denoised_signal is
+	// true, that's what we do. Due to RAM usage, it's much slower!
 
-	std::vector<std::vector<penalty_record> > penalties(2,
+	int num_rows = 2;
+	if (return_denoised_signal) {
+		num_rows = fluxes.size();
+	}
+
+	std::vector<std::vector<penalty_record> > penalties(num_rows,
 		std::vector<penalty_record>(max_p_i-min_p_i));
 
 	// These are indices into the penalties vector. We'll
 	// swap them around each time so as not to have to
 	// waste CPU power on a bunch of reallocations.
 
-	int new_idx = 0, old_idx = 1;
+	int old_idx = 1, new_idx = 0;
 	penalty_record our_best;
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
@@ -87,6 +107,7 @@ double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
 			// error for the last term. If it's the first flux delay,
 			// everything is free (because we don't know what e_-1 is).
 			double record_penalty = std::numeric_limits<double>::max();
+			int recordholder = -1; // <-- this makes it slow!!!
 
 			if (first) {
 				record_penalty = 0;
@@ -98,6 +119,7 @@ double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
 
 					if (candidate_penalty < record_penalty) {
 						record_penalty = candidate_penalty;
+						recordholder = p.p_i_choice;
 					}
 				}
 			}
@@ -105,6 +127,7 @@ double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
 			our_best.penalty_so_far = record_penalty;
 			our_best.e_i = e_i;
 			our_best.p_i_choice = p_i_choice;
+			our_best.last_p_i_choice = recordholder;
 			penalties[new_idx][p_i_choice-min_p_i] = our_best;
 
 			//std::cout << " i = " << i << " p_i choice = " << p_i_choice << " e_i = " << e_i << " r.p. " << record_penalty << std::endl;
@@ -114,13 +137,49 @@ double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
 			first = false;
 		}
 
-		std::swap(old_idx, new_idx);
+		if (return_denoised_signal) {
+			old_idx = new_idx;
+			new_idx++;
+		} else {
+			std::swap(old_idx, new_idx);
+		}
 	}
 
-	double best_penalty = std::numeric_limits<double>::max();
+	penalty_record best = penalties[old_idx][0];
 	for (penalty_record p: penalties[old_idx]) {
-		best_penalty = std::min(best_penalty, p.penalty_so_far);
+		if (p.penalty_so_far < best.penalty_so_far) {
+			best = p;
+		}
 	}
 
-	return sqrt(best_penalty);
+	// Reconstruct the denoised signal if told to do so.
+	if (return_denoised_signal) {
+		// We need to start from the end and trace the path in
+		// reverse, then reverse the output when done.
+		denoised_signal.resize(0);
+
+		for (size_t i = fluxes.size(); i > 0; --i) {
+			denoised_signal.push_back(fluxes[i-1] - best.e_i);
+			best = penalties[i-1][best.last_p_i_choice - min_p_i];
+		}
+
+		std::reverse(denoised_signal.begin(), denoised_signal.end());
+	}
+
+	return sqrt(best.penalty_so_far);
+}
+
+double test_dewarp(const std::vector<int> & fluxes, double clock_estimate) {
+	std::vector<int> throwaway;
+
+	return test_dewarp(fluxes, clock_estimate, false, throwaway);
+}
+
+std::vector<int> get_dewarped(const std::vector<int> & fluxes,
+	double clock_estimate) {
+
+	std::vector<int> denoised_signal;
+	test_dewarp(fluxes, clock_estimate, true, denoised_signal);
+
+	return denoised_signal;
 }
