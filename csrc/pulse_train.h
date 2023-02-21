@@ -5,7 +5,18 @@
 // For information about how these algorithms work, see
 // the .cc file.
 
-typedef std::vector<char> MFM_train_t;
+typedef std::vector<char> MFM_data_t;
+
+class MFM_train_data {
+	public:
+		// This is the MFM train data itself.
+		MFM_data_t data;
+
+		// This is what flux delay a given bit of the MFM train
+		// belongs to. It's used to keep track of what pieces of
+		// flux data we've covered.
+		std::vector<size_t> indices;
+};
 
 // Level one:
 
@@ -13,11 +24,11 @@ typedef std::vector<char> MFM_train_t;
 // between flux reversals. The error_out double is set to a badness-of-fit
 // value: the higher the worse.
 
-MFM_train_t get_MFM_train(double clock,
+MFM_train_data get_MFM_train(double clock,
 		const std::vector<int> & fluxes, size_t start_pos,
 		size_t end_pos, double & error_out);
 
-MFM_train_t get_MFM_train(double clock,
+MFM_train_data get_MFM_train(double clock,
 		const std::vector<int> & fluxes, double & error_out);
 
 double get_MFM_train_error(double clock, const std::vector<int> & fluxes);
