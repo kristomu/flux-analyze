@@ -56,33 +56,11 @@ int main() {
 
 	decoder IBM_decoder;
 
-	bool try_dewarp = false; // toggle this, recompile, and then check
-	// the number of detected preambles.
-
 	for (const flux_record & f: flux_records) {
 
 		std::vector<int> fluxes = f.fluxes;
 
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
-
-		if (try_dewarp) {
-			std::cout << "Simple dewarp test" << std::endl;
-
-			double dewarp_error = 1e9;
-			int recordholder = -1;
-
-			for (int i = 1; i < 40; ++i) {
-				double error_here = test_dewarp(fluxes, i);
-				std::cout << i << ", " << error_here << std::endl;
-				if (error_here < dewarp_error) {
-					dewarp_error = error_here;
-					recordholder = i;
-				}
-			}
-
-			std::cout << "Record achieved at clock " << recordholder << std::endl;
-			fluxes = get_dewarped(fluxes, recordholder);
-		}
 
 		// Get locations/offsets into the flux where a magic preamble (A1A1A1
 		// or C2C2C2) might be found. Currently only A1A1A1 until I get
@@ -95,6 +73,10 @@ int main() {
 			filter_matches(fluxes, ordinal_locations,
 				std::vector<char>(pram.A1_sequence.begin()+1,
 				pram.A1_sequence.end()));
+
+		// A linear sequence made up of each decoded chunk concatenated
+		// in order.
+		MFM_train_data master_train;
 
 		for (size_t j = 0; j < matches.size(); ++j) {
 			// We want to decode everything from this preamble to the
@@ -118,12 +100,12 @@ int main() {
 
 			double error;
 
-			MFM_train_data sequence = get_MFM_train(m.estimated_clock,
+			master_train += get_MFM_train(m.estimated_clock,
 					f.fluxes, start_idx, end_idx, error);
-
-			IBM_decoder.decode(sequence);
-			IBM_decoder.dump_to_file(sequence, 1, 2, "data.dat", "errors.dat");
 		}
+
+		IBM_decoder.decode(master_train);
+		IBM_decoder.dump_to_file(master_train, 1, 2, "data.dat", "errors.dat");
 	}
 
 	return 0;

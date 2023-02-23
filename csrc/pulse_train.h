@@ -1,4 +1,6 @@
 #pragma once
+
+#include <stdexcept>
 #include <vector>
 #include <cmath>
 
@@ -16,7 +18,27 @@ class MFM_train_data {
 		// belongs to. It's used to keep track of what pieces of
 		// flux data we've covered.
 		std::vector<size_t> indices;
+
+		// Append some other data encoded by another process.
+		// This may be turned into something more sophisticated
+		// later, but my indecision shows that at this point I just
+		// need to iterate and then fix.
+		MFM_train_data & operator+= (const MFM_train_data & after) {
+			if (!indices.empty() && (
+				after.indices[0] - *indices.rbegin() < 0 ||
+				after.indices[0] - *indices.rbegin() > 1)) {
+
+				throw std::logic_error("Can't append nonconsecutive data!");
+			}
+			std::copy(after.data.begin(), after.data.end(),
+				std::back_inserter(data));
+			std::copy(after.indices.begin(), after.indices.end(),
+				std::back_inserter(indices));
+
+			return *this;
+		}
 };
+
 
 // Level one:
 
