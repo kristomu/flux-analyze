@@ -93,18 +93,10 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 		if (pos == MFM_train_end) { continue; }
 		bits[1] = *pos++;
 
-		// Handle RR. There's a problem here that RR could always
-		// be NR, so it's kind of an unsatisfactory answer to the
-		// problem. We'd need a nondeterministic automaton
-		// or something...
+		// Handle RR by aborting. This sequence should never be emitted
+		// from the MFM train decoder, and thus it showing up here
+		// would be an error.
 		int clock_pair = bits[0] * 2 + bits[1];
-		if (clock_pair == 3) {
-			if (last_bit == 0) {
-				clock_pair = 2; // Make it RN
-			} else {
-				clock_pair = 1; // Make it NR.
-			}
-		}
 
 		switch(clock_pair) {
 			case 0: // NN
@@ -408,11 +400,19 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		switch(admark.mark_type) {
 			case A_IAM:
 				std::cout << "Index address mark at " <<
-					preamble_locations[i] << std::endl;
+					preamble_locations[i];
+				if (i > 0) {
+					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+				}
+				std::cout << "\n";
 				break;
 			case A_IDAM:
-				std::cout << "ID address mark at " <<
-					preamble_locations[i] << std::endl;
+				std::cout << "ID address mark at "  <<
+					preamble_locations[i];
+				if (i > 0) {
+					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+				}
+				std::cout << "\n";
 				sd.decode_MFM(pos, next_pos, true, 10);
 				admark.idam.set(sd.decoded_data);
 				std::cout << "\ttrack: " << admark.idam.track << ", head: "
@@ -426,8 +426,12 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				std::cout << "\n";
 				break;
 			case A_DAM:
-				std::cout << "Data address mark at " <<
-					preamble_locations[i] << std::endl;
+				std::cout << "Data address mark at "  <<
+					preamble_locations[i];
+				if (i > 0) {
+					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+				}
+				std::cout << "\n";
 				// The stuff below is a giant hack based on that floppy
 				// sectors are usually 512 bytes. I really need to
 				// mass decode either every address mark region or
@@ -445,8 +449,12 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				}
 				break;
 			case A_DDAM:
-				std::cout << "Deleted data address mark at " <<
-					preamble_locations[i] << std::endl;
+				std::cout << "Deleted data address mark at "  <<
+					preamble_locations[i];
+				if (i > 0) {
+					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+				}
+				std::cout << "\n";
 				// See above.
 				sd.decode_MFM(pos, next_pos, true, 548);
 				admark.ddam.set(sd.decoded_data, 512);
@@ -464,6 +472,7 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 	}
 
 	std::cout << "CRC failures: " << CRC_failures << std::endl;
+	std::cout << "Total preambles: " << preamble_locations.size() << std::endl;
 }
 
 void decoder::dump_to_file(const MFM_train_data & MFM_train,

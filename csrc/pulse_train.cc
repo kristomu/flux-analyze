@@ -52,20 +52,20 @@ MFM_train_data get_MFM_train(double clock,
 		//			two halves more, and three zeroes is three, and so on.
 
 		int flux_delay = fluxes[i];
-		double half_clocks = (flux_delay*2)/clock;
+		int half_clocks = round((flux_delay*2)/clock);
 
 		// Subtract the constant half-clock offset of one, then round the next
 		// to get the number of zeroes.
-		int zeroes = std::max(0, (int)std::round(half_clocks - 1));
+		int zeroes = std::max(0, half_clocks-1);
 
 		// Update Euclidean error.
-		// Clamp the zeroes to [1..3] to penalize wrong clock guesses.
-		// NOTE: This may produce very misleading errors if the disk is
-		// partially corrupted because the mean is not a robust estimator.
-		// Deal with it later if required.
-		int clamped_zeroes = std::max(1, std::min(3, zeroes));
-		double error_term = flux_delay - (clamped_zeroes + 1) * clock/2.0;
+		double error_term = flux_delay - half_clocks * clock/2.0;
 		error_out += error_term * error_term;
+
+		// Ignore RR -- treat it as noise (as the reference VHDL code
+		// does). Better might be to just add the delay to the next
+		// term. Maybe do that later.
+		if (zeroes == 0) { continue; }
 
 		for (int j = 0; j < zeroes; ++j) {
 			train.data.push_back(0);
