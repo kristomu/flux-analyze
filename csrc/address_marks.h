@@ -44,6 +44,14 @@ class IDAM {
 		// By convention, the raw bytes start at the IDAM preamble (A1A1A1FE).
 		void set(std::vector<unsigned char> & raw_bytes);
 		void print_info() const;
+
+		bool operator<(const IDAM & other) const {
+			if (track != other.track) { return track < other.track; }
+			if (head != other.head) { return head < other.head; }
+			if (sector != other.sector) { return sector < other.sector; }
+
+			return false;
+		}
 };
 
 

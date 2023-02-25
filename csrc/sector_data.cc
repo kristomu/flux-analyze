@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <set>
 
 #include "address_marks.h"
 #include "pulse_train.h"
@@ -247,6 +248,11 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 	// Not entirely true but it's easier to avoid off-by-ones this way.
 	address_mark_starts.push_back(sd.decoded_data.size());
 
+	bool has_last_admark = false;
+	address_mark last_admark;
+
+	std::vector<std::pair<address_mark, address_mark> > full_sectors_found;
+
 	for (i = 0; i < address_mark_starts.size()-1; ++i) {
 		size_t start = address_mark_starts[i],
 			next = address_mark_starts[i+1];
@@ -263,31 +269,44 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		admark.set_address_mark(preamble);
 		admark.byte_stream_index = start;
 
+		size_t datalen;
+
 		switch(admark.mark_type) {
 			case A_IAM: break;
 			case A_IDAM:
 				admark.idam.set(this_chunk);
 				break;
+
+			// Handle data AMs.
 			case A_DAM:
-				// The stuff below is a giant hack based on that floppy
-				// sectors are usually 512 bytes. I really need to
-				// mass decode either every address mark region or
-				// the whole record instead of decoding piecemeal.
-				// Decoding region wise has the benefit that an MFM
-				// error will only propagate so far, even in the worst
-				// case. I also need to somehow connect DAM and DDAMs
-				// with their preceding IDAMs.
-				admark.dam.set(this_chunk, 512);
+			case A_DDAM:
+				// If we have a preceding IDAM and the gap between the
+				// IDAM starts and the DAM starts is too small to fit
+				// another DAM, then we assume the previous IDAM goes
+				// with this DAM. The "128" here is the minimum length
+				// of the data in a DAM.
+				if (has_last_admark &&
+					last_admark.mark_type == A_IDAM && 
+					start - last_admark.byte_stream_index < 128) {
+
+					datalen = last_admark.idam.datalen;
+					std::cout << "Matching IDAM found" << std::endl;
+				} else {
+					std::cout << "Guessing" << std::endl;
+					datalen = 512; // seems to be standard for floppies.
+				}
+
+				admark.dam.set(this_chunk, datalen);
 				if (!admark.dam.CRC_OK) {
 					++ CRC_failures;
 				}
-				break;
-			case A_DDAM:
-				// See above.
-				admark.ddam.set(this_chunk, 512);
-				if (!admark.ddam.CRC_OK) {
-					++ CRC_failures;
+
+				if (has_last_admark && last_admark.mark_type == A_IDAM) {
+					full_sectors_found.push_back(
+						std::pair<address_mark, address_mark>
+						(last_admark, admark));
 				}
+
 				break;
 			default: break;
 		}
@@ -300,9 +319,57 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		admark.print_info();
 		std::cout << "\n";
 
+		last_admark = admark;
+		has_last_admark = true;
+	}
+
+	// This set contains the IDAMs corresponding to sectors with
+	// valid data.
+	std::set<IDAM> unique_OK_sectors, all_sectors;
+
+	// Go through all the found sectors to count them.
+	for (auto & sector_constituents: full_sectors_found) {
+
+		if (sector_constituents.second.mark_type == A_DDAM) {
+			std::cout << "Warning: found DDAM. This is not "
+				"currently supported." << std::endl;
+			continue;
+		}
+
+		IDAM idam = sector_constituents.first.idam;
+		DAM dam = sector_constituents.second.dam;
+
+		if (unique_OK_sectors.find(idam) != unique_OK_sectors.end()) {
+			continue; // already seen it
+		}
+
+		// Maybe also check for MFM errors??? It's a weak check but should
+		// discard stuff that just happens to have a colliding bad CRC...
+		if (idam.CRC_OK && dam.CRC_OK) {
+			unique_OK_sectors.insert(idam);
+		}
+
+		// Don't insert IDAMs with bad CRC; their sector metadata could be
+		// scrambled and refer to something that doesn't exist.
+		if (idam.CRC_OK) {
+			all_sectors.insert(idam);
+		}
+	}
+
+	// Guess at the number of sectors, assuming the sectors start at 1.
+	size_t num_sectors = all_sectors.size();
+
+	for (const IDAM & idam: unique_OK_sectors) {
+		num_sectors = std::max(num_sectors, (size_t) idam.sector);
+
+		std::cout << "OK sector found: ";
+		idam.print_info();
+		std::cout << "\n";
 	}
 
 	std::cout << "CRC failures: " << CRC_failures << std::endl;
+	std::cout << "Sectors recovered: " << unique_OK_sectors.size() << " out of " << num_sectors << std::endl;
+	std::cout << "Unique sector metadata chunks: " << all_sectors.size() << std::endl;
 	std::cout << "Total preambles: " << preamble_locations.size() << std::endl;
 }
 
