@@ -105,7 +105,7 @@ int main() {
 		}
 
 		IBM_decoder.decode(master_train);
-		IBM_decoder.dump_to_file(master_train, 1, 2, "data.dat", "errors.dat");
+		IBM_decoder.dump_to_file(master_train, "data.dat", "errors.dat");
 	}
 
 	return 0;

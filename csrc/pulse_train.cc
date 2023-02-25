@@ -38,10 +38,10 @@ MFM_train_data get_MFM_train(double clock,
 	MFM_train_data train;
 	// expected number of bits per reversal, including ones.
 	train.data.reserve(fluxes.size() * 8/3);
-	train.indices.reserve(fluxes.size() * 8/3);
+	train.flux_indices.reserve(fluxes.size() * 8/3);
 
 	train.data.push_back(1);
-	train.indices.push_back(start_pos);
+	train.flux_indices.push_back(start_pos);
 
 	error_out = 0;
 
@@ -69,10 +69,10 @@ MFM_train_data get_MFM_train(double clock,
 
 		for (int j = 0; j < zeroes; ++j) {
 			train.data.push_back(0);
-			train.indices.push_back(i);
+			train.flux_indices.push_back(i);
 		}
 		train.data.push_back(1);
-		train.indices.push_back(i);
+		train.flux_indices.push_back(i);
 	}
 
 	error_out = std::sqrt(error_out / fluxes.size());

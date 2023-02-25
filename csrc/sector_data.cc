@@ -34,24 +34,18 @@ class sector_data {
 	public:
 		std::vector<unsigned char> decoded_data;
 		std::vector<unsigned char> errors;
+		std::vector<size_t> MFM_train_indices;
 
 		// limit_length is used to terminate decoding early: if it's set to true,
 		// the decoding will stop after max_output_length bytes have been
-		// reconstructed. This is used for preamble checks.
-		void decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
-			const std::vector<char>::const_iterator & MFM_train_end,
-			bool limit_length, size_t max_output_length);
-
-		void decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
-			const std::vector<char>::const_iterator & MFM_train_end) {
-
-			decode_MFM(MFM_train_start, MFM_train_end, false, 0);
-		}
+		// reconstructed. This is used to reset the state between each
+		// preamble.
+		void decode_and_add_MFM(const MFM_train_data & MFM_train,
+			size_t start_index, size_t length);
 };
 
-void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train_start,
-	const std::vector<char>::const_iterator & MFM_train_end,
-	bool limit_length, size_t max_output_length) {
+void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
+			size_t start_index, size_t end_index) {
 
 	// If N denotes "no reversal" and R denotes "reversal", then
 	// the MFM state machine is as follows:
@@ -69,11 +63,8 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 	// I'm using 1 and 0 literals for one and zero bits; note that this
 	// is exactly opposite of the C tradition (0 is true, 1 is false).
 
-	decoded_data.clear();
-	errors.clear();
 	unsigned char current_char = 0, current_char_errors = 0;
 	size_t bits_output = 0;
-	auto pos = MFM_train_start;
 
 	// We don't know the MFM train data prior to the first bit,
 	// so we don't know if the "last" decoded bit would've been a
@@ -81,13 +72,18 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 	// error for the first bit.
 	bool beginning = true;
 	char last_bit = 0;
+	auto pos = MFM_train.data.begin() + start_index,
+		MFM_train_end = MFM_train.data.begin() + end_index;
+	size_t printed_char_began_here = start_index;
 
 	char bits[2];
 
-	while (pos != MFM_train_end) {
-		if (limit_length && decoded_data.size() >= max_output_length) {
-			return;
-		}
+	if (end_index - start_index > MFM_train.data.size()) {
+		throw std::runtime_error("decode_and_add_MFM: invalid selection"
+			" of MFM_train bits to decode!");
+	}
+
+	while (pos != MFM_train_end && pos != MFM_train.data.end()) {
 		// Clock two bits.
 		bits[0] = *pos++;
 		if (pos == MFM_train_end) { continue; }
@@ -123,6 +119,13 @@ void sector_data::decode_MFM(const std::vector<char>::const_iterator & MFM_train
 		bits_output++;
 		beginning = false;
 		if (bits_output == 8) {
+			// Add to the index list the first MFM train bit
+			// that contributed to this char, and set it for
+			// the next char to add next time around.
+			MFM_train_indices.push_back(printed_char_began_here);
+			printed_char_began_here = (pos - MFM_train.data.begin()) - start_index;
+
+			// Add data and errors, and reset.
 			decoded_data.push_back(current_char);
 			errors.push_back(current_char_errors);
 			current_char = 0;
@@ -266,7 +269,8 @@ class address_mark {
 		// successfully decoded chunks and work by a process of
 		// elimination.
 
-		void set_address_mark(const std::vector<unsigned char> & header_bytes);
+		void set_address_mark(
+			const std::vector<unsigned char> & header_bytes);
 
 };
 
@@ -293,6 +297,7 @@ class decoder {
 		rabin_karp preamble_search;
 
 		std::vector<address_mark> address_marks;
+		sector_data sd;
 
 		// TODO later: something that keeps this cache from going
 		// stale if the user inputs one MFM train when doing calc_preamble,
@@ -306,7 +311,7 @@ class decoder {
 		// QND fix later: gets an index into the MFM train
 		// consistent with the beginning of the idx-th preamble,
 		// or the end of the array if idx is too large.
-		std::vector<char>::const_iterator get_pos_by_idx(
+		size_t get_pos_by_idx(
 			const std::vector<char> & MFM_train, size_t idx) const {
 
 			if (!preamble_locations_calculated) {
@@ -314,9 +319,9 @@ class decoder {
 			}
 
 			if (idx < preamble_locations.size()) {
-				return MFM_train.begin() + preamble_locations[idx];
+				return preamble_locations[idx];
 			} else {
-				return MFM_train.end();
+				return MFM_train.size();
 			}
 		}
 
@@ -328,8 +333,6 @@ class decoder {
 
 		// For debugging.
 		void dump_to_file(const MFM_train_data & MFM_train,
-			size_t start_location_idx,
-			size_t stop_location_idx,
 			std::string data_filename,
 			std::string error_filename) const;
 };
@@ -374,9 +377,9 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		calc_preamble_locations(MFM_train);
 	}
 
-	std::cout << "Sequences found: " << preamble_locations.size() << std::endl;
+	sd = sector_data(); // clear the sector data.
 
-	sector_data sd;
+	std::cout << "Sequences found: " << preamble_locations.size() << std::endl;
 
 	int CRC_failures = 0;
 
@@ -387,34 +390,62 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 	// We should probably carry through index markers for this, but
 	// it's pretty hard to do right...
 
-	for (size_t i = 0; i < preamble_locations.size(); ++i) {
-		std::vector<char>::const_iterator pos = get_pos_by_idx(
-			MFM_train.data, i), next_pos = get_pos_by_idx(MFM_train.data, i+1);
+	// Decode the whole thing, collecting indices into the bytestream
+	// on the way.
 
-		// Decode four bytes to determine what mark we're dealing
-		// with. (TODO? Iterators? but then what about error/OOB signaling?)
-		sd.decode_MFM(pos, next_pos, true, 4);
+	std::vector<size_t> address_mark_starts;
+	size_t i;
+
+	for (i = 0; i < preamble_locations.size(); ++i) {
+		// TODO: More coherent comments.
+		// Add the start position of the sector_data data, because
+		// that's where the chunk belonging to this address mark
+		// starts.
+		address_mark_starts.push_back(sd.decoded_data.size());
+
+
+		size_t cur_MFM_idx = get_pos_by_idx(MFM_train.data, i), 
+			next_MFM_idx = get_pos_by_idx(MFM_train.data, i+1);
+
+		// Add this chunk to the decoding.
+		sd.decode_and_add_MFM(MFM_train, cur_MFM_idx, next_MFM_idx);
+	}
+
+	// Not entirely true but it's easier to avoid off-by-ones this way.
+	address_mark_starts.push_back(sd.decoded_data.size());
+
+	for (i = 0; i < address_mark_starts.size()-1; ++i) {
+		size_t start = address_mark_starts[i],
+			next = address_mark_starts[i+1];
+		// Quick and dirty (very ugly) way of separating out the
+		// vector belonging to this chunk. TODO: Fix later: either
+		// actually store multiple vectors in the MFM_train (probably
+		// best) or change all the signatures.
+		std::vector<unsigned char> this_chunk(&sd.decoded_data[start],
+			&sd.decoded_data[next]);
+		std::vector<unsigned char> preamble(&sd.decoded_data[start],
+			&sd.decoded_data[start]+4);
 
 		address_mark admark;
-		admark.set_address_mark(sd.decoded_data);
+		admark.set_address_mark(preamble);
 		switch(admark.mark_type) {
 			case A_IAM:
 				std::cout << "Index address mark at " <<
-					preamble_locations[i];
+					start;
 				if (i > 0) {
-					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
 				}
 				std::cout << "\n";
 				break;
 			case A_IDAM:
 				std::cout << "ID address mark at "  <<
-					preamble_locations[i];
+					start;
 				if (i > 0) {
-					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
 				}
 				std::cout << "\n";
-				sd.decode_MFM(pos, next_pos, true, 10);
-				admark.idam.set(sd.decoded_data);
+				
+				admark.idam.set(this_chunk);
 				std::cout << "\ttrack: " << admark.idam.track << ", head: "
 					<< admark.idam.head << ", sector: " << admark.idam.sector
 					<< ", data len: " << admark.idam.datalen << " CRC: "
@@ -427,9 +458,9 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				break;
 			case A_DAM:
 				std::cout << "Data address mark at "  <<
-					preamble_locations[i];
+					start;
 				if (i > 0) {
-					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
 				}
 				std::cout << "\n";
 				// The stuff below is a giant hack based on that floppy
@@ -440,8 +471,7 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				// error will only propagate so far, even in the worst
 				// case. I also need to somehow connect DAM and DDAMs
 				// with their preceding IDAMs.
-				sd.decode_MFM(pos, next_pos, true, 548);
-				admark.dam.set(sd.decoded_data, 512);
+				admark.dam.set(this_chunk, 512);
 				std::cout << "\tCRC: " << admark.dam.CRC << " ";
 				if (admark.dam.CRC_OK) { std::cout << "CRC OK\n"; } else {
 					std::cout << "CRC bad\n";
@@ -450,14 +480,13 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				break;
 			case A_DDAM:
 				std::cout << "Deleted data address mark at "  <<
-					preamble_locations[i];
+					start;
 				if (i > 0) {
-					std::cout << " (+" << preamble_locations[i] - preamble_locations[i-1] << ")";
+					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
 				}
 				std::cout << "\n";
 				// See above.
-				sd.decode_MFM(pos, next_pos, true, 548);
-				admark.ddam.set(sd.decoded_data, 512);
+				admark.ddam.set(this_chunk, 512);
 				std::cout << "\tCRC: " << admark.ddam.CRC << " ";
 				if (admark.ddam.CRC_OK) { std::cout << "CRC OK\n"; } else {
 					std::cout << "CRC bad\n";
@@ -466,7 +495,7 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				break;
 			default:
 				std::cout << "???? Something else at " <<
-					preamble_locations[i] << std::endl;
+					start << std::endl;
 				break;
 		}
 	}
@@ -476,16 +505,11 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 }
 
 void decoder::dump_to_file(const MFM_train_data & MFM_train,
-	size_t start_location_idx, size_t stop_location_idx,
 	std::string data_filename, std::string error_filename) const {
 
 	if (!preamble_locations_calculated) {
 		throw std::runtime_error("Preambles not located yet");
 	}
-
-	sector_data sd;
-	sd.decode_MFM(get_pos_by_idx(MFM_train.data, start_location_idx),
-		get_pos_by_idx(MFM_train.data, stop_location_idx));
 
 	std::ofstream fout(data_filename, std::ios::out | std::ios::binary);
 	fout.write((char *)sd.decoded_data.data(), sd.decoded_data.size());
