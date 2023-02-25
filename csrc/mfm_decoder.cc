@@ -54,11 +54,10 @@ int main() {
 	rabin_karp ordinal_preamble_search(pram.ordinal_A1_sequence);
 	ordinal_preamble_search.add(pram.ordinal_C2_sequence);
 
-	decoder IBM_decoder;
-
 	for (const flux_record & f: flux_records) {
 
 		std::vector<int> fluxes = f.fluxes;
+		decoder IBM_decoder;
 
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
 

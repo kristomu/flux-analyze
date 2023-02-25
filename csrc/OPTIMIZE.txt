@@ -1,19 +1,31 @@
-Optimization ideas: (2023-02-04)
+Optimization ideas: (2023-02-25)
 
-Profiling with callgrind on a large flux file shows the following hotspots:
-	51%: decoder::decode -> rabin_karp::find_match
-	32%: get_MFM_train
-	16%: get_flux_record
+Profiling with callgrind on a large flux file shows the following usage by
+main() when optimizations are disabled:
+	decoder::decode			38.81%
+	get_MFM_train			21.12%
+	MFM_train_data::operator+=	15.79%
+	get_delta_coding		 6.69%
+	get_flux_record			 6.95%
+	<others>			10.64%
 
-So the easiest way to make this faster would be to replace the MFM train with
-run-length encoded data, i.e. instead of the output being "100010010001", it
-would be "323". This would cut the length of the string Rabin-Karp has to
-traverse by a third, and it would also speed up get_MFM_train and make
-ordinal searching much easier if I want to implement that later; however,
-clocking bits in decode_MFM would be much more of a hassle and the code
-would be considerably more opaque. It may be the right way to go but it
-feels wrong.
+and optimized (possibly misleading):
+	decoder::decode	(+ all R-K)     41.59%
+	get_MFM_train			19.28%
+	get_flux_record:		 9.07%
+	get_delta_coding		 5.02%
 
-A significant part of the get_MFM_train calculation is the error stuff, but
-it's a bit hard to tell just what's consuming time with all the inline
-optimizations that -O3 does. There's also a bunch of overhead per push_back.
+Basically, this shows that the main hotspots are:
+	1. Hash table lookups as part of Rabin-Karp.
+	2. Rabin-Karp having to search over a longer haystack because MFM_train
+		is a bitfield, not run length encoded.
+	3. Memory shuffling due to the way the decoding process is modular
+		(starting anew from each preamble) but also not (everything
+		is concatenated into one higher-order stream).
+	4. Duplication of effort running Rabin-Karp inside decoder::decode.
+
+I can deal with point three (and probably will); I can't deal with 1 unless I
+change the search algorithm, and I could deal with 2 by making MFM_train run
+length encoded (or the number of half-clocks). But that would make the code
+much harder to read, so I'm not going to. Finally, #4 will go away once I've
+refactored properly.
