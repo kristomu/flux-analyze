@@ -2,6 +2,7 @@
 #include <fstream>
 #include <vector>
 
+#include "address_marks.h"
 #include "pulse_train.h"
 #include "rabin_karp.h"
 #include "preambles.h"
@@ -10,22 +11,6 @@
 
 // Higher order formatting for IBM floppies, from
 // https://www-user.tu-chemnitz.de/~heha/basteln/PC/usbfloppy/floppy.chm/
-
-// The start of a chunk is marked by a synchronization header. There are
-// four types:
-
-// Abbrev. Full name                 Byte seq.  What it is
-// IAM	   Index Address Mark        C2C2C2 FC, start of a track
-// IDAM	   ID Address Mark           A1A1A1 FE, start of a sector
-// DAM	   Data Address Mark         A1A1A1 FB, start of sector data
-//		   Deleted Data Address Mark A1A1A1 F8,	start of deleted sector data
-
-// Each address mark is followed by a different header structure,
-// though the IAM has no header at all. Note that the byte sequence
-// contains a deliberate error to signal out-of-band that it's an address
-// mark, not ordinary data.
-
-enum address_mark_t { A_IAM, A_IDAM, A_DAM, A_DDAM, A_UNKNOWN };
 
 // I kind of feel like this class is doing double duty... some of its contents
 // ought to be de facto singletons, but I can't quite see how to do it
@@ -36,12 +21,13 @@ class sector_data {
 		std::vector<unsigned char> errors;
 		std::vector<size_t> MFM_train_indices;
 
-		// limit_length is used to terminate decoding early: if it's set to true,
-		// the decoding will stop after max_output_length bytes have been
-		// reconstructed. This is used to reset the state between each
-		// preamble.
+		// Since we want to reset the MFM state at every preamble so that
+		// we're guaranteed that errors don't propagate indefinitely, we
+		// decode one chunk at a time (from one preamble to the next).
+		// Hence start_index and end_index, which give the boundaries of
+		// these chunks.
 		void decode_and_add_MFM(const MFM_train_data & MFM_train,
-			size_t start_index, size_t length);
+			size_t start_index, size_t end_index);
 };
 
 void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
@@ -137,159 +123,6 @@ void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
 		}
 	}
 }
-
-// http://nerdlypleasures.blogspot.com/2015/11/ibm-pc-floppy-disks-deeper-look-at-disk.html
-const int MAX_DATALEN_IDX = 6;
-const std::array<int, MAX_DATALEN_IDX+1> IDAM_datalen = {
-	128, 256, 512, 1024, 2048, 4096, 8192};
-
-class IDAM {		// ID Address Mark
-	public:
-		// ID Address Mark info. Note these are raw data
-		// so e.g. datalen would be an index into a vector. TODO:
-		// Abstract that away, either here or in address_mark.
-
-		int track, head, sector, datalen;
-		unsigned short CRC;
-
-		// The address mark doesn't include this, but since we're only
-		// reading, we just check the validity of the CRC at read time.
-		bool CRC_OK = false;
-		bool truncated;
-
-		// By convention, the raw bytes start at the IDAM preamble (A1A1A1FE).
-		void set(std::vector<unsigned char> & raw_bytes);
-};
-
-
-// Reads off an unsigned value in most significant byte first format.
-unsigned int msb_to_int(const std::vector<unsigned char> & data,
-	std::vector<unsigned char>::const_iterator pos, int num_bytes) {
-
-	unsigned int out = 0;
-
-	for (int i = 0; i < num_bytes; ++i) {
-		if (pos == data.end()) { return out; } // early stopping
-		out <<= 8;
-		out += (int)*pos++;
-	}
-
-	return out;
-}
-
-unsigned int msb_to_int(const std::vector<unsigned char> & data,
-	size_t idx, int num_bytes) {
-	return msb_to_int(data, data.begin()+idx, num_bytes);
-}
-
-// https://stackoverflow.com/a/44947877/6183577
-// But as this is CCITT-CRC16, the initial CRC value is -1 (0xFFFF), not 0.
-unsigned short crc16(std::vector<unsigned char>::const_iterator start,
-	std::vector<unsigned char>::const_iterator end) {
-
-	short i, crc = -1;
-
-	for (auto pos = start; pos != end; ++pos) {
-		crc ^= (int)*pos << 8;
-		i = 8;
-		do {
-			if (crc & 0x8000) {
-				crc = crc << 1 ^ 0x1021;
-			} else {
-				crc = crc << 1;
-			}
-		} while (--i);
-	}
-
-	return crc;
-}
-
-void IDAM::set(std::vector<unsigned char> & raw_bytes) {
-
-	track = raw_bytes[4];
-	head = raw_bytes[5];
-	sector = raw_bytes[6];
-
-	// Quick and dirty way to deal with out-of-bounds/corrupted values.
-	// Also do a lookup to IDAM_datalen to turn this into an actual data chunk
-	// length.
-	datalen = IDAM_datalen[std::min((int)raw_bytes[7], MAX_DATALEN_IDX)];
-
-	CRC = msb_to_int(raw_bytes, 8, 2);
-	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin()+8) == CRC;
-
-	truncated = raw_bytes.size() < 10;
-}
-
-class DAM {		// Data Address Mark (also used for Deleted Data)
-	public:
-		std::vector<char> data;
-		unsigned short CRC;
-
-		// Auxiliary info
-		bool CRC_OK;
-		bool deleted; // Is it a DAM or a DDAM?
-
-		void set(std::vector<unsigned char> & raw_bytes, int datalen);
-};
-
-void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
-
-	deleted = (raw_bytes[3] == 0xF8);
-	data = std::vector<char>(raw_bytes.begin() + 4,
-		raw_bytes.begin() + 4 + datalen);
-
-	CRC = msb_to_int(raw_bytes, raw_bytes.begin() + 4 + datalen, 2);
-	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin() + 4 + datalen) == CRC;
-
-}
-
-class IAM {		// Index Address Mark
-	public:
-		// Reference offset would go here; the IAM doesn't actually contain
-		// any data or metadata.
-};
-
-// It's easier to put all the address mark types into one class
-// than deal with the problems of reconciling strong typing with a
-// list of different types of address marks. This is doubly true because
-// a Data Address Mark's metadata is listed in the IDAM that precedes it;
-// so we need to know the relative location of DAMs and IDAMs.
-
-class address_mark {
-	public:
-		address_mark_t mark_type;
-
-		IDAM idam;
-		IAM iam;
-		DAM dam, ddam;
-
-		// TODO? Some kind of reference of where this was located all
-		// the way back to the pulse train, so that we can cross off
-		// successfully decoded chunks and work by a process of
-		// elimination.
-
-		void set_address_mark(
-			const std::vector<unsigned char> & header_bytes);
-
-};
-
-void address_mark::set_address_mark(const std::vector<unsigned char> & header_bytes) {
-	mark_type = A_UNKNOWN;
-	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {
-		mark_type = A_IAM;
-	}
-	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFE})) {
-		mark_type = A_IDAM;
-	}
-	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFB})) {
-		mark_type = A_DAM;
-	}
-	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF8})) {
-		mark_type = A_DDAM;
-	}
-}
-
 
 class decoder {
 	private:
@@ -428,41 +261,14 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 
 		address_mark admark;
 		admark.set_address_mark(preamble);
+		admark.byte_stream_index = start;
+
 		switch(admark.mark_type) {
-			case A_IAM:
-				std::cout << "Index address mark at " <<
-					start;
-				if (i > 0) {
-					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
-				}
-				std::cout << "\n";
-				break;
+			case A_IAM: break;
 			case A_IDAM:
-				std::cout << "ID address mark at "  <<
-					start;
-				if (i > 0) {
-					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
-				}
-				std::cout << "\n";
-				
 				admark.idam.set(this_chunk);
-				std::cout << "\ttrack: " << admark.idam.track << ", head: "
-					<< admark.idam.head << ", sector: " << admark.idam.sector
-					<< ", data len: " << admark.idam.datalen << " CRC: "
-					<< admark.idam.CRC << " ";
-				if (admark.idam.CRC_OK) { std::cout << "CRC OK"; } else {
-					++ CRC_failures;
-					std::cout << "CRC bad";
-				}
-				std::cout << "\n";
 				break;
 			case A_DAM:
-				std::cout << "Data address mark at "  <<
-					start;
-				if (i > 0) {
-					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
-				}
-				std::cout << "\n";
 				// The stuff below is a giant hack based on that floppy
 				// sectors are usually 512 bytes. I really need to
 				// mass decode either every address mark region or
@@ -472,32 +278,28 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 				// case. I also need to somehow connect DAM and DDAMs
 				// with their preceding IDAMs.
 				admark.dam.set(this_chunk, 512);
-				std::cout << "\tCRC: " << admark.dam.CRC << " ";
-				if (admark.dam.CRC_OK) { std::cout << "CRC OK\n"; } else {
-					std::cout << "CRC bad\n";
+				if (!admark.dam.CRC_OK) {
 					++ CRC_failures;
 				}
 				break;
 			case A_DDAM:
-				std::cout << "Deleted data address mark at "  <<
-					start;
-				if (i > 0) {
-					std::cout << " (+" << start - address_mark_starts[i-1] << ")";
-				}
-				std::cout << "\n";
 				// See above.
 				admark.ddam.set(this_chunk, 512);
-				std::cout << "\tCRC: " << admark.ddam.CRC << " ";
-				if (admark.ddam.CRC_OK) { std::cout << "CRC OK\n"; } else {
-					std::cout << "CRC bad\n";
+				if (!admark.ddam.CRC_OK) {
 					++ CRC_failures;
 				}
 				break;
-			default:
-				std::cout << "???? Something else at " <<
-					start << std::endl;
-				break;
+			default: break;
 		}
+
+		std::cout << start;
+		if (i > 0) {
+			std::cout << " (+" << start - address_mark_starts[i-1] << ")";
+		}
+		std::cout << "\t";
+		admark.print_info();
+		std::cout << "\n";
+
 	}
 
 	std::cout << "CRC failures: " << CRC_failures << std::endl;

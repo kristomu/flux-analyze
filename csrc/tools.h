@@ -1,4 +1,5 @@
 #pragma once
+
 #include <vector>
 #include <algorithm>
 
@@ -15,3 +16,14 @@ template<typename T> double median(std::vector<T> vec) {
 		return vec[vec.size()/2];
 	}
 }
+
+// Reads off an unsigned value in most significant byte first format.
+unsigned int msb_to_int(const std::vector<unsigned char> & data,
+	std::vector<unsigned char>::const_iterator pos, int num_bytes);
+
+unsigned int msb_to_int(const std::vector<unsigned char> & data,
+	size_t idx, int num_bytes);
+
+// Calculate a CCITT-CRC16 on the given region.
+unsigned short crc16(std::vector<unsigned char>::const_iterator start,
+	std::vector<unsigned char>::const_iterator end);
