@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 3.1)
 
 project(flux-analyze)
 
-set (CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 set(CMAKE_C_COMPILER gcc)
@@ -10,6 +10,9 @@ set(CMAKE_CXX_COMPILER g++)
 set(PROG_NAME "flux-analyze")
 
 set(CMAKE_CXX_FLAGS "-ggdb -Wall -O3")
+
+find_package(ZLIB REQUIRED)
+find_package(SQLite3 REQUIRED)
 
 add_executable(${PROG_NAME}
 	address_marks.cc
@@ -20,7 +23,8 @@ add_executable(${PROG_NAME}
 	ordinal_search.cc
 	tools.cc)
 
-# TODO later: actually check that these libraries are installed
+# Add SQLite and zlib libraries; if they're not found, the REQUIRED
+# should've erred out above, so we won't get any errors here.
 
-target_link_libraries(${PROG_NAME} -lz -lsqlite3)
-
+include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} )
+target_link_libraries( ${PROG_NAME} ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
