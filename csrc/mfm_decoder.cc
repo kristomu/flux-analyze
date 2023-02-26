@@ -17,10 +17,9 @@
 #include "flux_record.h"
 
 #include "pulse_train.h"
+#include "ordinal_search.h"
 #include "sector_data.cc"
 #include "tools.h"
-
-#include "dewarp_test.cc"
 
 // PROCESSING
 
@@ -39,7 +38,6 @@
  *    = ..X..X..X....X
  * as a true composition. */
 
-
 int main() {
 
 	test_rabin_karp();
@@ -50,9 +48,11 @@ int main() {
 	// Some preliminary testing goes here.
 
 	// Quick and dirty ordinal search experiments
-	IBM_preamble pram;
-	rabin_karp ordinal_preamble_search(pram.ordinal_A1_sequence);
-	ordinal_preamble_search.add(pram.ordinal_C2_sequence);
+	IBM_preamble preamble_info;
+	rabin_karp ordinal_preamble_search(
+		preamble_info.ordinal_A1_sequence, PREAMBLE_ID_A1);
+	ordinal_preamble_search.add(
+		preamble_info.ordinal_C2_sequence, PREAMBLE_ID_C2);
 
 	for (const flux_record & f: flux_records) {
 
@@ -66,12 +66,11 @@ int main() {
 		// Rabin-Karp to report match type.
 
 		std::vector<char> ordinal_flux = get_delta_coding(fluxes);
-		std::vector<size_t> ordinal_locations =
+		std::vector<search_result> ordinal_locations =
 			ordinal_preamble_search.find_matches(ordinal_flux);
 		std::vector<match_with_clock> matches =
 			filter_matches(fluxes, ordinal_locations,
-				std::vector<char>(pram.A1_sequence.begin()+1,
-				pram.A1_sequence.end()));
+				preamble_info);
 
 		// A linear sequence made up of each decoded chunk concatenated
 		// in order.

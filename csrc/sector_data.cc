@@ -173,8 +173,10 @@ class decoder {
 
 // Relying on something initialized by the constructor of one object
 // in the constructor of another is kind of icky, but it seems to work.
-decoder::decoder() : preambles(), preamble_search(preambles.A1_sequence) {
-	preamble_search.add(preambles.C2_sequence);
+decoder::decoder() : preambles(), preamble_search(preambles.A1_sequence,
+	PREAMBLE_ID_A1) {
+
+	preamble_search.add(preambles.C2_sequence, PREAMBLE_ID_C2);
 
 	preamble_locations_calculated = false;
 }
@@ -184,7 +186,7 @@ void decoder::calc_preamble_locations(
 	const MFM_train_data & MFM_train) {
 
 	preamble_locations_calculated = true;
-	preamble_locations = preamble_search.find_matches(
+	preamble_locations = preamble_search.find_matching_indices(
 		MFM_train.data);
 }
 

@@ -43,12 +43,12 @@ rabin_karp::rabin_karp(size_t min_needle_length_in) {
 }
 
 rabin_karp::rabin_karp(const std::vector<char> &
-	needle) : rabin_karp(needle.size()) {
+	needle, int needle_ID) : rabin_karp(needle.size()) {
 
-	add(needle);
+	add(needle, needle_ID);
 }
 
-void rabin_karp::add(const std::vector<char> & needle) {
+void rabin_karp::add(const std::vector<char> & needle, int needle_ID) {
 	hash_int needle_hash = 0;
 
 	if (needle.size() < min_needle_length) {
@@ -83,15 +83,15 @@ void rabin_karp::add(const std::vector<char> & needle) {
 			"strings with same hash not supported!");
 	}
 
-	needles_by_hash[needle_hash] = needle;
+	needles_by_hash[needle_hash] = search_key(needle, needle_ID);
 }
 
-std::vector<size_t> rabin_karp::find_matches(
+std::vector<search_result> rabin_karp::find_matches(
 	const std::vector<char> & haystack) const {
 
 	hash_int search_hash = 0;
 
-	std::vector<size_t> match_indices;
+	std::vector<search_result> matches;
 
 	// The boundary conditions for this loop are tricky. When we
 	// enter the loop with some value of i, that means that every
@@ -112,18 +112,19 @@ std::vector<size_t> rabin_karp::find_matches(
 			auto needle_ref = needles_by_hash.find(
 				search_hash);
 
-			if (needle_ref->second.size() > i) {
+			if (needle_ref->second.needle.size() > i) {
 				continue; // Needle is too long to fit.
 			}
 
-			size_t start_pos = i - needle_ref->second.size();
+			size_t start_pos = i - needle_ref->second.needle.size();
 
 			if (!brute_force_search(haystack.begin() + start_pos,
-				haystack.end(), needle_ref->second)) {
+				haystack.end(), needle_ref->second.needle)) {
 				continue;
 			}
 
-			match_indices.push_back(start_pos);
+			matches.push_back(search_result(start_pos,
+				needle_ref->second.ID));
 		}
 
 		// If we're at the end of the haystack, don't add any more
@@ -142,6 +143,20 @@ std::vector<size_t> rabin_karp::find_matches(
 				search_hash += modulus;
 			}
 		}
+	}
+
+	return matches;
+}
+
+// Mostly for testing; doesn't return IDs.
+std::vector<size_t> rabin_karp::find_matching_indices(
+	const std::vector<char> & haystack) const {
+
+	std::vector<search_result> results = find_matches(haystack);
+	std::vector<size_t> match_indices;
+
+	for (const search_result & result: results) {
+		match_indices.push_back(result.idx);
 	}
 
 	return match_indices;
@@ -168,7 +183,7 @@ void test_rabin_karp() {
 	std::string needle = "isn't here";
 	std::string haystack = "hello everybody is this hello world or what? hello";
 
-	rabin_karp rk(str_to_vec(needle));
+	rabin_karp rk(str_to_vec(needle), 0);
 	if (rk.find_matches(str_to_vec(haystack)).size() > 0) {
 		throw std::logic_error("Rabin-Karp test: Found a match "
 			"where nowhere was expected");
@@ -176,9 +191,9 @@ void test_rabin_karp() {
 
 	// Test matching something.
 	needle = "hello";
-	rk = rabin_karp(str_to_vec(needle));
+	rk = rabin_karp(str_to_vec(needle), 0);
 
-	if (!vec_eq(rk.find_matches(str_to_vec(haystack)), {0, 24, 45})) {
+	if (!vec_eq(rk.find_matching_indices(str_to_vec(haystack)), {0, 24, 45})) {
 		throw std::logic_error("Rabin-Karp test: unexpected output"
 			" from three match haystack.");
 	}
@@ -188,18 +203,19 @@ void test_rabin_karp() {
 	haystack = "supercalifragilistic but not "
 		"supercalifragilisticexpialidociousexpialidocious";
 
-	rk = rabin_karp(str_to_vec(needle));
-	if (!vec_eq(rk.find_matches(str_to_vec(haystack)), {29})) {
+	rk = rabin_karp(str_to_vec(needle), 0);
+	if (!vec_eq(rk.find_matching_indices(str_to_vec(haystack)), {29})) {
 		throw std::logic_error("Rabin-Karp test: unexpected output"
 			" with very large needle.");
 	}
 
-	// Test two needles.
+	// Test two needles and IDs.
 	std::string needletwo = "listic but not";
-	rk = rabin_karp(str_to_vec(needletwo));
-	rk.add(str_to_vec(needle));
+	rk = rabin_karp(str_to_vec(needletwo), 1);
+	rk.add(str_to_vec(needle), 0);
 
-	if (!vec_eq(rk.find_matches(str_to_vec(haystack)), {14, 29})) {
+	if (!vec_eq(rk.find_matches(str_to_vec(haystack)),
+		{search_result(14, 1), search_result(29, 0)})) {
 		throw std::logic_error("Rabin-Karp test: unexpected output"
 			" with two needles.");
 	}
@@ -207,9 +223,9 @@ void test_rabin_karp() {
 	// Test negative values.
 	std::vector<char> haystack_nv = {-1, -1, 0, 1, 1, -1, 0, -1},
 		needle_nv = {1, 1, -1, 0, -1};
-	rk = rabin_karp(needle_nv);
+	rk = rabin_karp(needle_nv, 0);
 
-	if (!vec_eq(rk.find_matches(haystack_nv), {3})) {
+	if (!vec_eq(rk.find_matching_indices(haystack_nv), {3})) {
 		throw std::logic_error("Rabin-Karp test: could not find needle"
 			" with negative values.");
 	}

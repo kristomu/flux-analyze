@@ -24,11 +24,15 @@
 
 // Maybe I don't even need the full 3x. (Consider that later.)
 
+// The whole "offset" thing is also rather ugly. Either fix or explain better
+// why it's there. Best would of course be to make ordinal search handle it
+// transparently, offsetting back results.
+
 #pragma once
 #include <vector>
 
-// To generate ordinal search sequences.
-#include "ordinal_search.h"
+// Search result IDs.
+const int PREAMBLE_ID_A1 = 0, PREAMBLE_ID_C2 = 1;
 
 class IBM_preamble {
 	public:
@@ -37,29 +41,11 @@ class IBM_preamble {
 		std::vector<char> short_C2 = {
 			0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0};
 		std::vector<char> A1_sequence, C2_sequence;
+		std::vector<char> offset_A1_sequence, offset_C2_sequence;
 		std::vector<char> ordinal_A1_sequence, ordinal_C2_sequence;
 
 		IBM_preamble();
+
+		std::vector<char> get_preamble_by_ID(int ID) const;
+		std::vector<char> get_offset_preamble_by_ID(int ID) const;
 };
-
-IBM_preamble::IBM_preamble() {
-	// The A1 sequence is the short A1 repeated three times,
-	// and ditto for the C2 sequence.
-
-	A1_sequence.reserve(3 * short_A1.size());
-	C2_sequence.reserve(3 * short_C2.size());
-	for (int i = 0; i < 3; ++i) {
-		std::copy(short_A1.begin(), short_A1.end(),
-			std::back_inserter(A1_sequence));
-		std::copy(short_C2.begin(), short_C2.end(),
-			std::back_inserter(C2_sequence));
-	}
-
-	// The first bit of both sequences is a zero, and we
-	// can't create an ordinal sequence from something starting
-	// in a zero. So start from index one instead.
-	ordinal_A1_sequence = get_ordinal_search_sequence(std::vector<char>(
-		A1_sequence.begin() + 1, A1_sequence.end()));
-	ordinal_C2_sequence = get_ordinal_search_sequence(std::vector<char>(
-		C2_sequence.begin() + 1, C2_sequence.end()));
-}

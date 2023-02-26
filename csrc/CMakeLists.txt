@@ -21,6 +21,7 @@ add_executable(${PROG_NAME}
 	flux_record.cc
 	pulse_train.cc
 	ordinal_search.cc
+	preambles.cc
 	tools.cc)
 
 # Add SQLite and zlib libraries; if they're not found, the REQUIRED

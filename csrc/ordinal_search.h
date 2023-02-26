@@ -16,6 +16,8 @@
 #pragma once
 
 #include "tools.h"
+#include "preambles.h"
+#include "rabin_karp.h"
 #include <vector>
 
 struct match_with_clock {
@@ -48,5 +50,5 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 
 std::vector<match_with_clock> filter_matches(
 	const std::vector<int> & flux_transitions,
-	const std::vector<size_t> & possible_match_locations,
-	const std::vector<char> & MFM_train_search_sequence);
+	const std::vector<search_result> & possible_matches,
+	const IBM_preamble & preamble_info);

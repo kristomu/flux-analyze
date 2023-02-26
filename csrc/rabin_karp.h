@@ -6,6 +6,7 @@
 // and not restricted to a given string length, but also a much
 // greater pain to write.
 
+#pragma once
 #include <vector>
 #include <unordered_map>
 
@@ -13,10 +14,47 @@
 
 typedef int64_t hash_int;
 
+// Each needle is associated with a different ID so that
+// it's possible to tell just what string was matched.
+
+class search_result {
+	public:
+		size_t idx;
+		int ID;
+
+		search_result(size_t idx_in, int ID_in) {
+			idx = idx_in;
+			ID = ID_in;
+		}
+
+		bool operator==(const search_result & x) const {
+			return idx == x.idx && ID == x.ID;
+		}
+
+		bool operator!=(const search_result & x) const {
+			return !(*this == x);
+		}
+
+		search_result() {}
+};
+
+class search_key {
+	public:
+		std::vector<char> needle;
+		int ID;
+
+		search_key(const std::vector<char> & needle_in, int ID_in) {
+			needle = needle_in;
+			ID = ID_in;
+		}
+
+		search_key() {}
+};
+
 class rabin_karp {
 	private:
 		std::unordered_map<hash_int,
-			std::vector<char> > needles_by_hash;
+			search_key> needles_by_hash;
 
 		// These are magic constants; they should be
 		// reasonably good. The requirements are that
@@ -35,10 +73,14 @@ class rabin_karp {
 			const std::vector<char> & needle) const;
 
 	public:
+		// Each needle is associated with an ID, and the find_matches
+		//
 		rabin_karp(size_t min_needle_length_in);
-		rabin_karp(const std::vector<char> & needle);
-		void add(const std::vector<char> & needle);
-		std::vector<size_t> find_matches(
+		rabin_karp(const std::vector<char> & needle, int needle_ID);
+		void add(const std::vector<char> & needle, int needle_ID);
+		std::vector<search_result> find_matches(
+			const std::vector<char> & haystack) const;
+		std::vector<size_t> find_matching_indices(
 			const std::vector<char> & haystack) const;
 };
 

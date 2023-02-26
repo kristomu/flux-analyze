@@ -14,6 +14,9 @@
 // good idea of what the clock actually *is* at that position.
 
 #include "ordinal_search.h"
+#include "rabin_karp.h"
+#include "preambles.h"
+
 #include <stdexcept>
 #include <algorithm>
 
@@ -160,27 +163,31 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	return median(bands[1]);
 }
 
-// TODO: Somehow communicate *which* preamble the Rabin-Karp
-// search found, so that we can have multiple MFM train search
-// sequences here or something. A1A1 won't fit C2C2 or vice versa.
+// TODO? Somehow generalize so that it doesn't just take preambles.
+// E.g. when we start looking for damaged IDAMs, we'll want to get
+// results that are given by the IBM_preamble structure.
+
+// Also TODO: using the offset to offset the preamble so that it matches
+// the offset we gave the ordinal preamble... is kind of ugly.
 
 std::vector<match_with_clock> filter_matches(
 	const std::vector<int> & flux_transitions,
-	const std::vector<size_t> & possible_match_locations,
-	const std::vector<char> & MFM_train_search_sequence) {
+	const std::vector<search_result> & possible_matches,
+	const IBM_preamble & preamble_info) {
 
 	std::vector<match_with_clock> out;
 	match_with_clock true_match;
 
-	for (size_t idx: possible_match_locations) {
-		double clock =	get_clock(MFM_train_search_sequence,
-			flux_transitions.begin() + idx, flux_transitions.end());
+	for (const search_result & result: possible_matches) {
+		double clock =	get_clock(
+			preamble_info.get_offset_preamble_by_ID(result.ID),
+			flux_transitions.begin() + result.idx, flux_transitions.end());
 
 		if (clock == -1) {
 			continue; // false positive
 		}
 
-		true_match.match_location = idx;
+		true_match.match_location = result.idx;
 		true_match.estimated_clock = clock;
 
 		out.push_back(true_match);
