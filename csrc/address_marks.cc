@@ -78,24 +78,55 @@ void address_mark::set_address_mark_type(
 	std::vector<unsigned char> header_bytes(bytes.begin(),
 		bytes.begin()+4);
 
+	// The uncommon "WD1772 track language" address marks are from
+	// http://dmweb.free.fr/files/Atari-Copy-Protection-V1.4.pdf
+	// unless otherwise specified.
+
 	mark_type = A_UNKNOWN;
+	// Common IAM
 	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {
 		mark_type = A_IAM;
 	}
-	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFE})) {
-		mark_type = A_IDAM;
+	// Uncommon IAM: http://oldmachinery.blogspot.com/2018/05/qldd.html
+	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFE})) {
+		mark_type = A_IAM;
 	}
+
+	// Common DDAM
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF8})) {
+		mark_type = A_DDAM;
+	}
+	// WD1772 track language: uncommon DDAM
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF9})) {
+		mark_type = A_DDAM;
+	}
+
+	// WD1772 track language: uncommon DAM
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFA})) {
+		mark_type = A_DAM;
+	}
+	// Common DAM
 	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFB})) {
 		mark_type = A_DAM;
 	}
-	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xF8})) {
-		mark_type = A_DDAM;
+
+	// Common IDAM
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFE})) {
+		mark_type = A_IDAM;
+	}
+
+	// WD1772 track language: uncommon IDAM
+	// Are these real??
+	if(header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFC}) ||
+		header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFD}) ||
+		header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFF})) {
+		mark_type = A_IDAM;
 	}
 }
 
 void address_mark::print_info() const {
 	switch(mark_type) {
-		default: std::cout << "?? Unknown address mark.";
+		default: std::cout << "?? Unknown address mark."; break;
 		case A_IAM: return iam.print_info();
 		case A_IDAM: return idam.print_info();
 		case A_DAM: return dam.print_info();

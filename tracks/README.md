@@ -1,6 +1,6 @@
 Odd track examples:
 
-- low_level_format_with_noise: every sector is 0xF6 (i.e. only a low level format, no file system on top). Some weird effects on the flux transitions in certain places. Useful for testing recovery ideas later, because the data pattern on the corrupted sectors is known.
+- low_level_format_with_noise: every sector is 0xF6 (i.e. only a low level format, no file system on top). Some weird effects on the flux transitions in certain places. Useful for testing recovery ideas later, because the data pattern on the corrupted sectors is known. This track also contains IAMs (start-of-track markers). 
 - MS_Plus_OK_track - OK track from a Microsoft Plus! floppy. This one can be decoded fine with non-k-median FluxEngine.
 - MS_Plus_warped_track - Warped track from a Microsoft Plus! floppy. FluxEngine can't cleanly decode every sector, but mfm_decoder can.
 
