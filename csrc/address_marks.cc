@@ -72,8 +72,11 @@ void IAM::print_info() const {
 
 // ------------- Container class ------------
 
-void address_mark::set_address_mark(
-	const std::vector<unsigned char> & header_bytes) {
+void address_mark::set_address_mark_type(
+	const std::vector<unsigned char> & bytes) {
+
+	std::vector<unsigned char> header_bytes(bytes.begin(),
+		bytes.begin()+4);
 
 	mark_type = A_UNKNOWN;
 	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {

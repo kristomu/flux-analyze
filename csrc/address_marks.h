@@ -108,8 +108,8 @@ class address_mark {
 		// successfully decoded chunks and work by a process of
 		// elimination.
 
-		void set_address_mark(
-			const std::vector<unsigned char> & header_bytes);
+		void set_address_mark_type(
+			const std::vector<unsigned char> & bytes);
 		void print_info() const;
 
 		address_mark() {

@@ -224,8 +224,8 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 	// We should probably carry through index markers for this, but
 	// it's pretty hard to do right...
 
-	// Decode the whole thing, collecting indices into the bytestream
-	// on the way.
+	// Decode the whole thing, storing the bytestream locations that
+	// start at a preamble while doing so.
 
 	std::vector<size_t> address_mark_starts;
 	size_t i;
@@ -236,7 +236,6 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		// that's where the chunk belonging to this address mark
 		// starts.
 		address_mark_starts.push_back(sd.decoded_data.size());
-
 
 		size_t cur_MFM_idx = get_pos_by_idx(MFM_train.data, i), 
 			next_MFM_idx = get_pos_by_idx(MFM_train.data, i+1);
@@ -262,11 +261,9 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		// best) or change all the signatures.
 		std::vector<unsigned char> this_chunk(&sd.decoded_data[start],
 			&sd.decoded_data[next]);
-		std::vector<unsigned char> preamble(&sd.decoded_data[start],
-			&sd.decoded_data[start]+4);
 
 		address_mark admark;
-		admark.set_address_mark(preamble);
+		admark.set_address_mark_type(this_chunk);
 		admark.byte_stream_index = start;
 
 		size_t datalen;

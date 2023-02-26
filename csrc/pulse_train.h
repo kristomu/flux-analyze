@@ -7,6 +7,8 @@
 // For information about how these algorithms work, see
 // the .cc file.
 
+// Level one:
+
 typedef std::vector<char> MFM_data_t;
 
 class MFM_train_data {
@@ -46,9 +48,6 @@ class MFM_train_data {
 			return *this;
 		}
 };
-
-
-// Level one:
 
 // Turn a flux record vector into an MFM pulse train by comparing the distance
 // between flux reversals. The error_out double is set to a badness-of-fit
