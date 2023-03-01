@@ -23,6 +23,7 @@ add_executable(${PROG_NAME}
 	ordinal_search.cc
 	sector_data.cc
 	preambles.cc
+	timeline.cc
 	tools.cc)
 
 # Add SQLite and zlib libraries; if they're not found, the REQUIRED

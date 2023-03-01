@@ -9,22 +9,17 @@
 #include "rabin_karp.h"
 #include "preambles.h"
 
+#include "timeline.h"
+
 class decoder {
 	private:
-		IBM_preamble preambles;
-		rabin_karp preamble_search;
-
 		std::vector<address_mark> address_marks;
-		sector_data sd;
 
 		// TODO later: something that keeps this cache from going
 		// stale if the user inputs one MFM train when doing calc_preamble,
 		// and then another with decode.
 		bool preamble_locations_calculated;
 		std::vector<size_t> preamble_locations;
-
-		std::vector<size_t> get_preamble_locations(
-			std::vector<char> & MFM_train) const;
 
 		// QND fix later: gets an index into the MFM train
 		// consistent with the beginning of the idx-th preamble,
@@ -44,109 +39,35 @@ class decoder {
 		}
 
 	public:
-		decoder();
-
-		void calc_preamble_locations(const MFM_train_data & MFM_train);
-		void decode(const MFM_train_data & MFM_train);
+		void decode(const timeline & line_to_decode);
 
 		// For debugging.
-		void dump_to_file(const MFM_train_data & MFM_train,
+		void dump_to_file(const timeline & line_to_dump,
 			std::string data_filename,
 			std::string error_filename) const;
 };
 
-// Relying on something initialized by the constructor of one object
-// in the constructor of another is kind of icky, but it seems to work.
-decoder::decoder() : preambles(), preamble_search(preambles.A1_sequence,
-	PREAMBLE_ID_A1) {
+// This is still in need of some refactoring. sector_data should also have
+// a total error count so that we can determine how many errors there are
+// in a given chunk decoding. TODO?
 
-	preamble_search.add(preambles.C2_sequence, PREAMBLE_ID_C2);
-
-	preamble_locations_calculated = false;
-}
-
-
-void decoder::calc_preamble_locations(
-	const MFM_train_data & MFM_train) {
-
-	preamble_locations_calculated = true;
-	preamble_locations = preamble_search.find_matching_indices(
-		MFM_train.data);
-}
-
-// This is getting very ugly and ripe for some serious refactoring.
-// But how?
-// Repeatedly calling decode_MFM is kind of ugly too, though on the other
-// hand, I can spare the decoding cost.
-
-// Decoding all the MFM stuff in one go is appealing because the decoder's
-// state (i.e. whether the last bit was 0 or 1) would then carry through.
-// On the other hand, decoding only what we need makes the mechanism more
-// flexible so that we could repair the chunks that fail to decode while
-// leaving all the other chunks alone. I don't think it matters much either
-// way; I just have to make a decision.
-
-// Looking at how Python did it may be instructive: it basically batch
-// decodes and then has one vector for errors and one for data. This would
-// also make it easy to count errors where there shouldn't be any (e.g. inside
-// data blocks).
-
-void decoder::decode(const MFM_train_data & MFM_train) {
-	// First get the preamble locations. (Memoize)
-	if (!preamble_locations_calculated) {
-		calc_preamble_locations(MFM_train);
-	}
-
-	sd = sector_data(); // clear the sector data.
-
-	std::cout << "Sequences found: " << preamble_locations.size() << std::endl;
-
+void decoder::decode(const timeline & line_to_decode) {
 	int CRC_failures = 0;
-
-	// Then decode four bytes to determine the mark
-	// we're dealing with.
-	// Then decode enough bytes to get the header,
-	// then enough to get the data if any.
-	// We should probably carry through index markers for this, but
-	// it's pretty hard to do right...
-
-	// Decode the whole thing, storing the bytestream locations that
-	// start at a preamble while doing so.
-
-	std::vector<size_t> address_mark_starts;
-	size_t i;
-
-	for (i = 0; i < preamble_locations.size(); ++i) {
-		// TODO: More coherent comments.
-		// Add the start position of the sector_data data, because
-		// that's where the chunk belonging to this address mark
-		// starts.
-		address_mark_starts.push_back(sd.decoded_data.size());
-
-		size_t cur_MFM_idx = get_pos_by_idx(MFM_train.data, i), 
-			next_MFM_idx = get_pos_by_idx(MFM_train.data, i+1);
-
-		// Add this chunk to the decoding.
-		sd.decode_and_add_MFM(MFM_train, cur_MFM_idx, next_MFM_idx);
-	}
-
-	// Not entirely true but it's easier to avoid off-by-ones this way.
-	address_mark_starts.push_back(sd.decoded_data.size());
 
 	bool has_last_admark = false;
 	address_mark last_admark;
 
 	std::vector<std::pair<address_mark, address_mark> > full_sectors_found;
+	size_t last_start = 0, i = 0;
 
-	for (i = 0; i < address_mark_starts.size()-1; ++i) {
-		size_t start = address_mark_starts[i],
-			next = address_mark_starts[i+1];
+	for (const timeslice & ts: line_to_decode.timeslices) {
+		sector_data sd = ts.sec_data;
 		// Quick and dirty (very ugly) way of separating out the
 		// vector belonging to this chunk. TODO: Fix later: either
 		// actually store multiple vectors in the MFM_train (probably
 		// best) or change all the signatures.
-		std::vector<unsigned char> this_chunk(&sd.decoded_data[start],
-			&sd.decoded_data[next]);
+		auto this_chunk = sd.decoded_data;
+		size_t start = ts.sector_data_begin;
 
 		address_mark admark;
 		admark.set_address_mark_type(this_chunk);
@@ -195,13 +116,14 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 		}
 
 		std::cout << start;
-		if (i > 0) {
-			std::cout << " (+" << start - address_mark_starts[i-1] << ")";
+		if (i++ > 0) {
+			std::cout << " (+" << start - last_start << ")";
 		}
 		std::cout << "\t";
 		admark.print_info();
 		std::cout << "\n";
 
+		last_start = start;
 		last_admark = admark;
 		has_last_admark = true;
 	}
@@ -253,22 +175,28 @@ void decoder::decode(const MFM_train_data & MFM_train) {
 	std::cout << "CRC failures: " << CRC_failures << std::endl;
 	std::cout << "Sectors recovered: " << unique_OK_sectors.size() << " out of " << num_sectors << std::endl;
 	std::cout << "Unique sector metadata chunks: " << all_sectors.size() << std::endl;
-	std::cout << "Total preambles: " << preamble_locations.size() << std::endl;
+	std::cout << "Total timeslices: " << line_to_decode.timeslices.size() << std::endl;
 }
 
-void decoder::dump_to_file(const MFM_train_data & MFM_train,
+void decoder::dump_to_file(const timeline & line_to_dump,
 	std::string data_filename, std::string error_filename) const {
 
-	if (!preamble_locations_calculated) {
-		throw std::runtime_error("Preambles not located yet");
-	}
+	std::ofstream data_out(data_filename, std::ios::out | std::ios::binary),
+		error_out(error_filename, std::ios::out | std::ios::binary);
 
-	std::ofstream fout(data_filename, std::ios::out | std::ios::binary);
-	fout.write((char *)sd.decoded_data.data(), sd.decoded_data.size());
-	fout.close();
-	fout = std::ofstream(error_filename, std::ios::out | std::ios::binary);
-	fout.write((char *)sd.errors.data(), sd.errors.size());
-	fout.close();
+	// This is not technically true, due to the way timeslices' sector data are
+	// aligned to preambles. However, the "right" way to do it (just dump all the
+	// bits one after the other) would make it much harder to see data in the dump
+	// files. So fortuitiously, the side effect that sector datas are byte-aligned
+	// with preambles serves us well!
+	for (const timeslice & ts: line_to_dump.timeslices) {
+		data_out.write((char *)ts.sec_data.decoded_data.data(),
+			ts.sec_data.decoded_data.size());
+		error_out.write((char *)ts.sec_data.errors.data(),
+			ts.sec_data.errors.size());
+	}
+	data_out.close();
+	error_out.close();
 }
 
 

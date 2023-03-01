@@ -82,6 +82,11 @@ void address_mark::set_address_mark_type(
 	// http://dmweb.free.fr/files/Atari-Copy-Protection-V1.4.pdf
 	// unless otherwise specified.
 
+	// TODO? Later when we try matching very short sequences: somehow
+	// handle headers of type garbage garbage garbage C2 FC or
+	// garbage garbage garbage A1 F8... Perhaps better is to fix the
+	// flux record to what we estimate it to be.
+
 	mark_type = A_UNKNOWN;
 	// Common IAM
 	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {

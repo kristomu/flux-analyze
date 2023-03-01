@@ -2,7 +2,7 @@
 
 #include "sector_data.h"
 
-void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
+sector_data decode_MFM_train(const MFM_train_data & MFM_train,
 			size_t start_index, size_t end_index) {
 
 	// If N denotes "no reversal" and R denotes "reversal", then
@@ -20,6 +20,8 @@ void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
 
 	// I'm using 1 and 0 literals for one and zero bits; note that this
 	// is exactly opposite of the C tradition (0 is true, 1 is false).
+
+	sector_data out;
 
 	unsigned char current_char = 0, current_char_errors = 0;
 	size_t bits_output = 0;
@@ -80,12 +82,12 @@ void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
 			// Add to the index list the first MFM train bit
 			// that contributed to this char, and set it for
 			// the next char to add next time around.
-			MFM_train_indices.push_back(printed_char_began_here);
+			out.MFM_train_indices.push_back(printed_char_began_here);
 			printed_char_began_here = (pos - MFM_train.data.begin()) - start_index;
 
 			// Add data and errors, and reset.
-			decoded_data.push_back(current_char);
-			errors.push_back(current_char_errors);
+			out.decoded_data.push_back(current_char);
+			out.errors.push_back(current_char_errors);
 			current_char = 0;
 			current_char_errors = 0;
 			bits_output = 0;
@@ -94,4 +96,6 @@ void sector_data::decode_and_add_MFM(const MFM_train_data & MFM_train,
 			current_char_errors <<= 1;
 		}
 	}
+
+	return out;
 }

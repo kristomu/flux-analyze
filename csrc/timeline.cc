@@ -1,22 +1,22 @@
-#pragma once
 #include "pulse_train.h"
 #include "sector_data.h"
+#include "timeline.h"
 
-class timeslice {
-	public:
-		// TODO, disambiguate from flux_record or refactor it.
-		std::vector<int> flux_data;
-		MFM_train_data mfm_train;
-		sector_data sector_data;
+void timeline::insert(timeslice & next) {
+	if (!timeslices.empty()) {
+		auto lastptr = timeslices.rbegin();
+		next.flux_data_begin = lastptr->flux_data_end();
+		next.mfm_train_begin = lastptr->mfm_train_end();
+		next.sector_data_begin = lastptr->sector_data_end();
+	}
 
-		// These offsets give the relative position of the beginning
-		// of each chunk, relative to the first chunk in the timeline.
-		size_t flux_data_begin;
-		size_t mfm_train_begin;
-		size_t sector_data_begin;
-};
+	if (next.flux_data.empty()) {
+		throw std::invalid_argument("timeslice must have flux data");
+	}
 
-class timeline {
-	public:
-		std::vector<timeslice> timeslices;
-};
+	if (next.mfm_train.data.empty()) {
+		throw std::invalid_argument("timeslice must have flux data");
+	}
+
+	timeslices.push_back(next);
+}

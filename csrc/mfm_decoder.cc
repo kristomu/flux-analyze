@@ -21,6 +21,7 @@
 #include "sector_data.h"
 #include "tools.h"
 
+#include "timeline.h"
 #include "decoder.cc"
 
 // PROCESSING
@@ -56,6 +57,11 @@ int main() {
 	ordinal_preamble_search.add(
 		preamble_info.ordinal_C2_sequence, PREAMBLE_ID_C2);
 
+	rabin_karp preamble_search(preamble_info.A1_sequence,
+		PREAMBLE_ID_A1);
+	preamble_search.add(preamble_info.C2_sequence,
+		PREAMBLE_ID_C2);
+
 	for (const flux_record & f: flux_records) {
 
 		std::vector<int> fluxes = f.fluxes;
@@ -73,9 +79,10 @@ int main() {
 			filter_matches(fluxes, ordinal_locations,
 				preamble_info);
 
+		timeline floppy_line;
 		// A linear sequence made up of each decoded chunk concatenated
 		// in order.
-		MFM_train_data master_train;
+		timeslice next;
 
 		for (size_t j = 0; j < matches.size(); ++j) {
 			// We want to decode everything from this preamble to the
@@ -99,12 +106,31 @@ int main() {
 
 			double error;
 
-			master_train += get_MFM_train(m.estimated_clock,
-					f.fluxes, start_idx, end_idx, error);
+			next.flux_data = std::vector<int>(f.fluxes.begin() + start_idx,
+				f.fluxes.begin() + end_idx);
+			next.mfm_train = get_MFM_train(m.estimated_clock,
+					next.flux_data, error);
+
+			// HACK HACK: Find the offset from the start of the MFM train
+			// to the start of the preamble. (TODO: lots of optimization
+			// can be done here. Not yet though.)
+			std::vector<search_result> preamble_locations =
+				preamble_search.find_matches(next.mfm_train.data);
+			if (preamble_locations.empty()) {
+				throw std::logic_error("Found preamble but then couldn't!"
+					" What's going on?");
+			}
+			next.has_preamble = true;
+			next.preamble_offset = preamble_locations[0].idx;
+
+			next.sec_data = decode_MFM_train(next.mfm_train,
+				next.preamble_offset, next.mfm_train.data.size());
+
+			floppy_line.insert(next);
 		}
 
-		IBM_decoder.decode(master_train);
-		IBM_decoder.dump_to_file(master_train, "data.dat", "errors.dat");
+		IBM_decoder.decode(floppy_line);
+		IBM_decoder.dump_to_file(floppy_line, "data.dat", "errors.dat");
 	}
 
 	return 0;
