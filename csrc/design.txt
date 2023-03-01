@@ -2,7 +2,12 @@ The MFM decoder is based around a number of data structures, each organized
 into levels. The lower the level, the closer it is to the raw flux data
 pulled from the FluxEngine file.
 
-These data structures are:
+These data structures will be organized into a timeline that contains the
+entire floppy data recording, made up of slices corresponding to parts that
+should be or have been decoded. The point of using a timeline is to isolate
+hard-to-decode parts while skipping parts that have already been decoded.
+
+The data structures are:
 	Level zero:
 		Flux record: a vector of time intervals between detected
 		fluxes, on some arbitrary time scale, or a class containing
@@ -31,3 +36,6 @@ These data structures are:
 		in the context of DAM and DDAM, refer to the data portion of
 		the address mark (i.e. the actual data stored on the floppy,
 		not metadata).
+
+The timeline may also contain interfaces that provide a linear view, but I'll
+determine that later.

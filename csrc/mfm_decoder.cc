@@ -18,8 +18,10 @@
 
 #include "pulse_train.h"
 #include "ordinal_search.h"
-#include "sector_data.cc"
+#include "sector_data.h"
 #include "tools.h"
+
+#include "decoder.cc"
 
 // PROCESSING
 
@@ -62,8 +64,7 @@ int main() {
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
 
 		// Get locations/offsets into the flux where a magic preamble (A1A1A1
-		// or C2C2C2) might be found. Currently only A1A1A1 until I get
-		// Rabin-Karp to report match type.
+		// or C2C2C2) might be found.
 
 		std::vector<char> ordinal_flux = get_delta_coding(fluxes);
 		std::vector<search_result> ordinal_locations =
