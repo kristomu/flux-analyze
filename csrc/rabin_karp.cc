@@ -101,30 +101,31 @@ std::vector<search_result> rabin_karp::find_matches(
 	// starts at 0.) Hence we need one extra round through the loop
 	// to detect any needles at exactly the end of the haystack.
 
-	for (size_t i = 0; i <= haystack.size(); ++i) {
+	auto needle_ref = needles_by_hash.find(0);
 
+	for (size_t i = 0; i <= haystack.size(); ++i) {
 		// If we're far enough that a needle could exist - and we have
 		// a hash match, then there might be a match ending in this
 		// position.
+		needle_ref = needles_by_hash.find(search_hash);
+
+		// The possible match needs to be longer than the minimum length,
+		// it needs to have a hash that we know,
+		// and it needs to be longer than the needle for that hash.
+
 		if (i >= min_needle_length &&
-			needles_by_hash.find(search_hash) != needles_by_hash.end()) {
-
-			auto needle_ref = needles_by_hash.find(
-				search_hash);
-
-			if (needle_ref->second.needle.size() > i) {
-				continue; // Needle is too long to fit.
-			}
+			needle_ref != needles_by_hash.end() &&
+			needle_ref->second.needle.size() <= i) {
 
 			size_t start_pos = i - needle_ref->second.needle.size();
 
-			if (!brute_force_search(haystack.begin() + start_pos,
+			// Eliminate false positives by verifying with brute force.
+			if (brute_force_search(haystack.begin() + start_pos,
 				haystack.end(), needle_ref->second.needle)) {
-				continue;
-			}
 
-			matches.push_back(search_result(start_pos,
-				needle_ref->second.ID));
+				matches.push_back(search_result(start_pos,
+					needle_ref->second.ID));
+			}
 		}
 
 		// If we're at the end of the haystack, don't add any more
