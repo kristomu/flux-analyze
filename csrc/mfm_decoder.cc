@@ -41,6 +41,83 @@
  *    = ..X..X..X....X
  * as a true composition. */
 
+
+// Determine the approximate period of the flux signal (i.e. recordings
+// from consecutive passes around the floppy disk). This works by taking
+// snippets from the flux record, then doing a Rabin-Karp search, and
+// determining the distance between adjacent hits, but in a way that
+// doesn't make outliers or unusually common sequences skew the result.
+
+// We currently need to cast everything to char because rabin_karp only
+// does char. TODO: Fix that later with templating.
+
+double find_approximate_period(const std::vector<int> & in_fluxes) {
+	int snippet_length = 10;
+	int snippets_to_check = 360;
+
+	// Any snippet that has fewer than this number of hits
+	// won't be taken into account for the period calculation.
+	size_t hit_threshold = 5;
+
+	// Anything with this short an estimated period is also
+	// discarded for being obviously wrong.
+	size_t period_threshold = 128;
+
+	// Ugly casting.
+	std::vector<char> fluxes(in_fluxes.begin(), in_fluxes.end());
+
+	rabin_karp snippet_search(snippet_length);
+	size_t snippet_num = 0, i = 0;
+
+	for (i = 0; i < fluxes.size();
+			i += fluxes.size()/snippets_to_check) {
+
+		std::vector<char> flux_snippet(fluxes.begin() + i,
+			fluxes.begin() + i + snippet_length);
+		// The snippets may match some earlier snippets, so we need
+		// to escape the error that would cause.
+		try {
+			snippet_search.add(flux_snippet, snippet_num);
+		} catch (std::invalid_argument & e) {
+			continue;
+		}
+		++snippet_num;
+	}
+
+	// Get the hits and dump their locations into a vector.
+
+	std::vector<std::vector<size_t> > snippet_hits(snippet_num,
+		std::vector<size_t>());
+
+	std::vector<search_result> results = snippet_search.find_matches(fluxes);
+	for (const search_result & result: results) {
+		snippet_hits[result.ID].push_back(result.idx);
+	}
+
+	// Extract the median period estimates for each snippet.
+	std::vector<double> median_periods;
+
+	for (const std::vector<size_t> & hits_this_snippet : snippet_hits) {
+		if (hits_this_snippet.size() < hit_threshold) {
+			continue;
+		}
+
+		std::vector<int> periods;
+		for (i = 1; i < hits_this_snippet.size(); ++i) {
+			// The distance between two occurrences of the same snippet
+			// produces an estimate of the period.
+			periods.push_back(hits_this_snippet[i] -
+				hits_this_snippet[i-1]);
+		}
+		double median_period_est = median(periods);
+		if (median_period_est > period_threshold) {
+			median_periods.push_back(median_period_est);
+		}
+	}
+
+	return median(median_periods);
+}
+
 int main() {
 
 	test_rabin_karp();
@@ -68,6 +145,8 @@ int main() {
 		decoder IBM_decoder;
 
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
+		std::cout << "Estimated period: " <<
+			find_approximate_period(fluxes) << std::endl;
 
 		// Get locations/offsets into the flux where a magic preamble (A1A1A1
 		// or C2C2C2) might be found.
