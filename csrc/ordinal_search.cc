@@ -21,6 +21,7 @@
 #include <algorithm>
 
 #include <iostream>
+#include <cmath>
 
 // Gets a run length encoding of zeroes broken up by ones, e.g.
 // 00101 becomes "2 1". The start must be a zero and there must be
@@ -147,20 +148,58 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	// Check for monotonicity (i.e. no interval overlap)
 	// Check that no band's minimum value is lower or equal to the
 	// previous band's max value.
+
+	std::vector<double> min_in_band(bands.size(), 0),
+		max_in_band(bands.size(), 0);
+
 	for (i = 1; i < bands.size(); ++i) {
+		// Get the minima and maxima for each band. This is
+		// used for clock determination.
+		max_in_band[i] = max_vec(bands[i]);
+		min_in_band[i] = min_vec(bands[i]);
+
 		if (bands[i].empty() || bands[i-1].empty()) {
 			continue;
 		}
 
-		if (min_vec(bands[i]) <= max_vec(bands[i-1])) {
+		if (min_in_band[i] <= max_in_band[i-1]) {
 			return -1;
 		}
 	}
 
-	// Do a very simple clock determination. Band one is one clock wide,
-	// so just take its median. I'll implement better clock determiation
-	// if required.
-	return median(bands[1]);
+	// Clock determination: the clock must be set so that the
+	// minimum and maximum value for are assigned to that band.
+	double clock_lower, clock_upper;
+
+	clock_upper = std::numeric_limits<double>::max();
+	clock_lower = std::numeric_limits<double>::min();
+
+	// Find the upper and lower bounds for the clock.
+	for (size_t band = 1; band < bands.size(); ++band) {
+		// The highest clock we can have is so that
+		// round(min_in_band / half_clock) = band + 1, i.e.
+		// min_in_band / half_clock = band + 0.5 + epsilon,
+		// clock = 4 * min_in_band / (2 * band + 1)
+		clock_upper = std::min(clock_upper, 4 * min_in_band[band] / (2.0 * band + 1));
+		// Similarly, the lowest clock we can have is so that
+		// round(max_in_band / half_clock) = band + 1,
+		// max_in_band / half_clock = band + 1.5 - epsilon,
+		// clock = 4 * max_in_band / (2 * band + 3)
+		clock_lower = std::max(clock_lower, 4 * max_in_band[band] / (2.0 * band + 3));
+	}
+
+	// Because neither clock_lower nor clock_upper will work, we
+	// must require that there's some value in between, so weak
+	// inequality wouldn't work.
+	if (clock_lower < clock_upper) {
+		// Empirical weighting, seems to work well.
+		return 0.6 * clock_lower + 0.4 * clock_upper;
+	} else {
+		// There are distinct bands but it's not possible to fit
+		// a single clock to it. This needs Python-style manually
+		// defined bands. For now, signal the impossibility.
+		return -2;
+	}
 }
 
 // TODO? Somehow generalize so that it doesn't just take preambles.
@@ -183,8 +222,8 @@ std::vector<match_with_clock> filter_matches(
 			preamble_info.get_offset_preamble_by_ID(result.ID),
 			flux_transitions.begin() + result.idx, flux_transitions.end());
 
-		if (clock == -1) {
-			continue; // false positive
+		if (clock < 0) {
+			continue; // false positive or impossible to fit clock
 		}
 
 		true_match.match_location = result.idx;

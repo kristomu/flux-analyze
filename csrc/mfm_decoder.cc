@@ -51,6 +51,14 @@
 // We currently need to cast everything to char because rabin_karp only
 // does char. TODO: Fix that later with templating.
 
+// Reasonable results for a HD floppy should be something around
+// 100k-133k, because a clock is 1.5 us and the standard IBM spin rate
+// is 300 RPM, i.e. 0.2s per rotation. The theoretical period is 67k if
+// all three-clocks, 88k if all two-clocks, but those are very improbable.
+
+// It works OK on good floppies, but returns an absolutely bizarre result
+// for RETRY-77-4-t69.0.flux.
+
 double find_approximate_period(const std::vector<int> & in_fluxes) {
 	int snippet_length = 10;
 	int snippets_to_check = 360;
@@ -118,12 +126,24 @@ double find_approximate_period(const std::vector<int> & in_fluxes) {
 	return median(median_periods);
 }
 
-int main() {
+int main(int argc, char ** argv) {
 
 	test_rabin_karp();
 
-	std::vector<flux_record> flux_records = get_flux_record(
-		"../tracks/MS_Plus_disk3_warped_track.flux", true);
+	std::string flux_filename;
+
+	if (argc < 2) {
+		flux_filename = "../tracks/MS_Plus_disk3_warped_track.flux";
+
+		std::cout << "Flux file to analyze was not specified.\n";
+		std::cout << "Choosing " << flux_filename << " as default.\n";
+	} else {
+		flux_filename = argv[1];
+		std::cout << "Analyzing flux file " << flux_filename << "\n";
+	}
+
+	std::vector<flux_record> flux_records = 
+		get_flux_record(flux_filename, true);
 
 	// Some preliminary testing goes here.
 
@@ -196,6 +216,7 @@ int main() {
 			std::vector<search_result> preamble_locations =
 				preamble_search.find_matches(next.mfm_train.data);
 			if (preamble_locations.empty()) {
+				// This happens when the clock estimate is wrong.
 				throw std::logic_error("Found preamble but then couldn't!"
 					" What's going on?");
 			}
