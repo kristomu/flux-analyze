@@ -6,6 +6,8 @@
 
 // ------------- ID Address Mark ------------
 
+size_t IDAM::byte_length() const { return 10; }
+
 void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 
 	track = raw_bytes[4];
@@ -20,7 +22,7 @@ void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 	CRC = msb_to_int(raw_bytes, 8, 2);
 	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin()+8) == CRC;
 
-	truncated = raw_bytes.size() < 10;
+	truncated = raw_bytes.size() < byte_length();
 }
 
 void IDAM::print_info() const {
@@ -39,6 +41,8 @@ void IDAM::print_info() const {
 
 // ------------ Data Address Mark (also used for Deleted Data) -----------
 
+size_t DAM::byte_length() const { return 4 + data.size() + 2; }
+
 void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
 
 	deleted = (raw_bytes[3] == 0xF8);
@@ -48,6 +52,7 @@ void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
 	CRC = msb_to_int(raw_bytes, raw_bytes.begin() + 4 + datalen, 2);
 	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin() + 4 + datalen) == CRC;
 
+	truncated = raw_bytes.size() < byte_length();
 }
 
 void DAM::print_info() const {
@@ -66,6 +71,8 @@ void DAM::print_info() const {
 
 // ------------- Index Address Mark ------------
 
+size_t IAM::byte_length() const { return 4; }
+
 void IAM::print_info() const {
 	std::cout << "Index AM.";
 }
@@ -82,10 +89,10 @@ void address_mark::set_address_mark_type(
 	// http://dmweb.free.fr/files/Atari-Copy-Protection-V1.4.pdf
 	// unless otherwise specified.
 
-	// TODO? Later when we try matching very short sequences: somehow
-	// handle headers of type garbage garbage garbage C2 FC or
-	// garbage garbage garbage A1 F8... Perhaps better is to fix the
-	// flux record to what we estimate it to be.
+	// Remember that these are literal and won't match any corrupted
+	// versions. So when we later start reconstructing corrupted
+	// address marks, the higher levels of the timeslice must reflect
+	// the "pristine" versions, not the corrupted ones.
 
 	mark_type = A_UNKNOWN;
 	// Common IAM
@@ -136,5 +143,15 @@ void address_mark::print_info() const {
 		case A_IDAM: return idam.print_info();
 		case A_DAM: return dam.print_info();
 		case A_DDAM: return ddam.print_info();
+	}
+}
+
+size_t address_mark::byte_length() const {
+	switch(mark_type) {
+		default: throw std::runtime_error("Unknown address mark."); break;
+		case A_IAM: return iam.byte_length();
+		case A_IDAM: return idam.byte_length();
+		case A_DAM: return dam.byte_length();
+		case A_DDAM: return ddam.byte_length();
 	}
 }

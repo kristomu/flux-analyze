@@ -26,6 +26,10 @@ const int MAX_DATALEN_IDX = 6;
 const std::array<int, MAX_DATALEN_IDX+1> IDAM_datalen = {
 	128, 256, 512, 1024, 2048, 4096, 8192};
 
+// It's not (yet) possible to clean up things with inheritance because
+// DAM's set() differs from everybody else's. There are ways around this,
+// but they seem uglier to me than the current solution.
+
 // ------------- ID Address Mark ------------
 
 class IDAM {
@@ -42,9 +46,15 @@ class IDAM {
 		bool CRC_OK = false;
 		bool truncated;
 
-		// By convention, the raw bytes start at the IDAM preamble (A1A1A1FE).
+		// By convention, the raw bytes start at the IDAM preamble (A1A1A1XX
+		// or C2C2C2XX).
 		void set(std::vector<unsigned char> & raw_bytes);
+
+		// Print information about this AM to stdout.
 		void print_info() const;
+
+		// How many raw bytes are required to encode this AM?
+		size_t byte_length() const;
 
 		bool operator<(const IDAM & other) const {
 			if (track != other.track) { return track < other.track; }
@@ -64,11 +74,13 @@ class DAM {
 		unsigned short CRC;
 
 		// Auxiliary info
-		bool CRC_OK;
+		bool CRC_OK = false;
 		bool deleted; // Is it a DAM or a DDAM?
+		bool truncated;
 
 		void set(std::vector<unsigned char> & raw_bytes, int datalen);
 		void print_info() const;
+		size_t byte_length() const;
 };
 
 // ------------- Index Address Mark ------------
@@ -78,6 +90,7 @@ class IAM {
 		// The IAM doesn't actually contain any data or metadata.
 
 		void print_info() const;
+		size_t byte_length() const;
 };
 
 
@@ -111,6 +124,7 @@ class address_mark {
 		void set_address_mark_type(
 			const std::vector<unsigned char> & bytes);
 		void print_info() const;
+		size_t byte_length() const;
 
 		address_mark() {
 			dam.deleted = false;
