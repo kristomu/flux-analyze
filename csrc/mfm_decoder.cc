@@ -123,6 +123,10 @@ double find_approximate_period(const std::vector<int> & in_fluxes) {
 		}
 	}
 
+	if (median_periods.empty()) {
+		throw std::runtime_error("Couldn't guess period.");
+	}
+
 	return median(median_periods);
 }
 
@@ -165,8 +169,12 @@ int main(int argc, char ** argv) {
 		decoder IBM_decoder;
 
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
-		std::cout << "Estimated period: " <<
-			find_approximate_period(fluxes) << std::endl;
+		try {
+			double flux_period = find_approximate_period(fluxes);
+			std::cout << "Estimated period: " << flux_period << std::endl;
+		} catch (std::runtime_error & e) {
+			std::cout << "Estimated period: [UNKNOWN]" << std::endl;
+		}
 
 		// Get locations/offsets into the flux where a magic preamble (A1A1A1
 		// or C2C2C2) might be found.
