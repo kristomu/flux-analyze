@@ -1,6 +1,8 @@
 #include <iostream>
+#include <iterator>
 #include <fstream>
 #include <vector>
+#include <map>
 #include <set>
 
 #include "address_marks.h"
@@ -10,6 +12,14 @@
 #include "preambles.h"
 
 #include "timeline.h"
+
+class decoded_tracks {
+	public:
+		int last_track = 0;
+		int last_decoded_sector = 0;
+
+		std::map<IDAM, DAM> sector_data;
+};
 
 class decoder {
 	private:
@@ -39,19 +49,35 @@ class decoder {
 		}
 
 	public:
-		void decode(const timeline & line_to_decode);
+		// Adds OK sectors to the given decoded_tracks
+		// structure.
+		void decode(const timeline & line_to_decode,
+			decoded_tracks & decoded);
 
 		// For debugging.
 		void dump_to_file(const timeline & line_to_dump,
 			std::string data_filename,
 			std::string error_filename) const;
+
+		// Dumps the image according to the decoded tracks to the
+		// files "file_prefix.img" for the image and "file_prefix.mask"
+		// for the bitmask file that shows which sectors were
+		// actually decoded (0xFF for a byte that, at the same
+		// position in prefix.img, was decoded; 0x00 for a byte
+		// that wasn't.)
+		// Maybe this should be a global function instead? TODO,
+		// find out.
+		void dump_image(const decoded_tracks & tracks,
+			std::string file_prefix, int heads,
+			int sectors_per_track,
+			int default_sector_size) const;
 };
 
 // This is still in need of some refactoring. sector_data should also have
 // a total error count so that we can determine how many errors there are
 // in a given chunk decoding. TODO?
 
-void decoder::decode(const timeline & line_to_decode) {
+void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) {
 	int CRC_failures = 0;
 
 	bool has_last_admark = false;
@@ -87,11 +113,11 @@ void decoder::decode(const timeline & line_to_decode) {
 				// If we have a preceding IDAM and the gap between the
 				// IDAM starts and the DAM starts is too small to fit
 				// another DAM, then we assume the previous IDAM goes
-				// with this DAM. The "128" here is the minimum length
-				// of the data in a DAM.
+				// with this DAM.
 				if (has_last_admark &&
 					last_admark.mark_type == A_IDAM && 
-					start - last_admark.byte_stream_index < 128) {
+					start - last_admark.byte_stream_index <
+						DAM::minimum_length()) {
 
 					datalen = last_admark.idam.datalen;
 					std::cout << "Matching IDAM found" << std::endl;
@@ -152,6 +178,16 @@ void decoder::decode(const timeline & line_to_decode) {
 		// discard stuff that just happens to have a colliding bad CRC...
 		if (idam.CRC_OK && dam.CRC_OK) {
 			unique_OK_sectors.insert(idam);
+
+			// Add to the decoded structure.
+			// TODO??? add IDAMs with blank DAMs if the IDAM was
+			// found but the data wasn't???
+
+			decoded.sector_data[idam] = dam;
+			decoded.last_track = std::max(decoded.last_track,
+				idam.track);
+			decoded.last_decoded_sector = std::max(
+				decoded.last_decoded_sector, idam.sector);
 		}
 
 		// Don't insert IDAMs with bad CRC; their sector metadata could be
@@ -199,62 +235,53 @@ void decoder::dump_to_file(const timeline & line_to_dump,
 	error_out.close();
 }
 
+void decoder::dump_image(const decoded_tracks & tracks,
+	std::string file_prefix, int heads, int sectors_per_track,
+	int default_sector_size) const {
 
-/*
-def decode_floppy_struct(dec_bytes, last_idam_datalen):
-	signature = dec_bytes[:4]
-	floppy_info = {}
+	// These values are hard-coded for IBM floppies for now, e.g.
+	// sectors starting at 1. Fix this later if required.
 
-	# http://dmweb.free.fr/files/Atari-Copy-Protection-V1.4.pdf p. 12
-	data_length = [128, 256, 512, 1024]
+	std::vector<char> image;
+	std::vector<char> mask;
+	IDAM lookup;
 
-	# Gracefully handle partially recovered headers.
-	if signature == b'\xa1\xa1\xa1\xfe':
-		floppy_info["header"] = "IDAM"
-		if len(dec_bytes) > 4:	floppy_info["track"] = dec_bytes[4]
-		if len(dec_bytes) > 5: floppy_info["head"] = dec_bytes[5]
-		if len(dec_bytes) > 6: floppy_info["sector"] = dec_bytes[6]
-		if len(dec_bytes) > 7: floppy_info["datalen"] = data_length[dec_bytes[7] & 3]
-		if len(dec_bytes) > 9: floppy_info["CRC"] = struct.unpack('>H', dec_bytes[8:10])[0]
-		if len(dec_bytes) > 9: floppy_info["CRC_OK"] = crc16(dec_bytes[:8], 0, 8) == floppy_info["CRC"]
-		if len(dec_bytes) < 10: floppy_info["truncated"] = True
+	int real_sectors = (int)std::max(sectors_per_track,
+		tracks.last_decoded_sector);
 
-		return floppy_info
+	for (lookup.track = 0; lookup.track < 80; ++lookup.track) {
+		for (lookup.head = 0; lookup.head < 2; ++lookup.head) {
+			for(lookup.sector = 1; lookup.sector <= real_sectors;
+					++lookup.sector) {
+				auto pos = tracks.sector_data.find(lookup);
 
-	if signature == b'\xa1\xa1\xa1\xfb':
-		floppy_info["header"] = "DAM"
+				// If nothing was found, then add a blank region
+				// to the image and to the mask.
+				if (pos == tracks.sector_data.end()) {
+					std::cout << "Couldn't find " << lookup.track << ", " << lookup.head << ", " << lookup.sector << std::endl;
+					std::vector<char> blank(default_sector_size, 0);
+					std::copy(blank.begin(), blank.end(),
+						std::back_inserter(image));
+					std::copy(blank.begin(), blank.end(),
+						std::back_inserter(mask));
+					continue;
+				}
 
-	if signature == b'\xa1\xa1\xa1\xf8':
-		floppy_info["header"] = "DAM (deleted)"
+				std::vector<char> OK_mask(pos->second.data.size(), 0xFF);
+				std::copy(pos->second.data.begin(), pos->second.data.end(),
+					std::back_inserter(image));
+				std::copy(OK_mask.begin(), OK_mask.end(),
+					std::back_inserter(mask));
 
-	if (signature == b'\xa1\xa1\xa1\xfb') or (signature == b'\xa1\xa1\xa1\xf8'):
-		# If this is the first sector, i.e. we don't know the last IDAM
-		# data length, recurse on every possible data length and return OK
-		# on the first one with CRC OK.
-		if last_idam_datalen == 0 or last_idam_datalen is None:
-			for i in reversed(data_length):
-				speculative_data_chunk = decode_floppy_struct(dec_bytes, i)
-				if "CRC_OK" in speculative_data_chunk and \
-					speculative_data_chunk["CRC_OK"]:
-					return speculative_data_chunk
+			}
+		}
+	}
 
-		# Every attempt gave a bad result. Abort.
-		if last_idam_datalen == 0 or last_idam_datalen is None:
-			raise IndexError("Could not determine DAM data length!")
+	std::ofstream image_file(file_prefix + ".img"),
+		mask_file(file_prefix + ".mask");
 
-		floppy_info["data"] = dec_bytes[4:4+last_idam_datalen]
-		if len(dec_bytes) > 4+last_idam_datalen+2: floppy_info["CRC"] = struct.unpack('>H', dec_bytes[4+last_idam_datalen:4+last_idam_datalen+2])[0]
-		if len(dec_bytes) > 4+last_idam_datalen+2: floppy_info["CRC_OK"] = crc16(dec_bytes[:4+last_idam_datalen], 0, 4+last_idam_datalen) == floppy_info["CRC"]
-		if len(dec_bytes) < 4+last_idam_datalen+3: floppy_info["truncated"] = True
-
-		return floppy_info
-
-	if signature == b'\xc2\xc2\xc2\xfc':
-		floppy_info["header"] = "IAM"
-
-		return floppy_info
-
-	print([hex(x) for x in signature])
-
-	raise KeyError
-	*/
+	std::copy(image.begin(), image.end(),
+		std::ostream_iterator<char>(image_file));
+	std::copy(mask.begin(), mask.end(),
+		std::ostream_iterator<char>(mask_file));
+}

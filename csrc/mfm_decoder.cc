@@ -163,6 +163,8 @@ int main(int argc, char ** argv) {
 	preamble_search.add(preamble_info.C2_sequence,
 		PREAMBLE_ID_C2);
 
+	decoded_tracks decoded;
+
 	for (const flux_record & f: flux_records) {
 
 		std::vector<int> fluxes = f.fluxes;
@@ -237,9 +239,13 @@ int main(int argc, char ** argv) {
 			floppy_line.insert(next);
 		}
 
-		IBM_decoder.decode(floppy_line);
+		IBM_decoder.decode(floppy_line, decoded);
 		IBM_decoder.dump_to_file(floppy_line, "data.dat", "errors.dat");
 	}
+
+	// Very quick and dirty hard-coded values, fix later. TODO
+	decoder IBM_decoder_final;
+	IBM_decoder_final.dump_image(decoded, "output", 80, 18, 512);
 
 	return 0;
 }

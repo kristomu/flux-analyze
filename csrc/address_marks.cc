@@ -6,7 +6,7 @@
 
 // ------------- ID Address Mark ------------
 
-size_t IDAM::byte_length() const { return 10; }
+size_t IDAM::byte_length() { return 10; }
 
 void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 
@@ -42,6 +42,9 @@ void IDAM::print_info() const {
 // ------------ Data Address Mark (also used for Deleted Data) -----------
 
 size_t DAM::byte_length() const { return 4 + data.size() + 2; }
+size_t DAM::minimum_length() {
+	return 4 + IDAM_datalen[0] + 2;
+}
 
 void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
 
@@ -71,7 +74,7 @@ void DAM::print_info() const {
 
 // ------------- Index Address Mark ------------
 
-size_t IAM::byte_length() const { return 4; }
+size_t IAM::byte_length() { return 4; }
 
 void IAM::print_info() const {
 	std::cout << "Index AM.";

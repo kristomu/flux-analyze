@@ -32,6 +32,9 @@ const std::array<int, MAX_DATALEN_IDX+1> IDAM_datalen = {
 
 // ------------- ID Address Mark ------------
 
+// At some later point I'll need a way to serialize IDAMs, and then
+// calculating the CRC should be easy.
+
 class IDAM {
 	public:
 		// ID Address Mark info. Note these are raw data
@@ -54,14 +57,33 @@ class IDAM {
 		void print_info() const;
 
 		// How many raw bytes are required to encode this AM?
-		size_t byte_length() const;
+		static size_t byte_length();
 
+		// If there's a parameter that controls the lenght of the AM,
+		// give the minimum number of raw bytes required. In practice
+		// this is only used for DAMs.
+		static size_t minimum_length() { return byte_length(); }
+
+		// Note that this operator does not inspect the CRC or datalen.
 		bool operator<(const IDAM & other) const {
 			if (track != other.track) { return track < other.track; }
 			if (head != other.head) { return head < other.head; }
 			if (sector != other.sector) { return sector < other.sector; }
 
 			return false;
+		}
+
+		IDAM() {
+			track = 0;
+			head = 0;
+			sector = 0;
+			datalen = IDAM_datalen[0];
+		}
+
+		IDAM(int track_in, int head_in, int sector_in) {
+			track = track_in;
+			head = head_in;
+			sector = sector_in;
 		}
 };
 
@@ -81,6 +103,8 @@ class DAM {
 		void set(std::vector<unsigned char> & raw_bytes, int datalen);
 		void print_info() const;
 		size_t byte_length() const;
+
+		static size_t minimum_length();
 };
 
 // ------------- Index Address Mark ------------
@@ -90,7 +114,8 @@ class IAM {
 		// The IAM doesn't actually contain any data or metadata.
 
 		void print_info() const;
-		size_t byte_length() const;
+		static size_t byte_length();
+		static size_t minimum_length() { return byte_length(); }
 };
 
 
