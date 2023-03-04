@@ -1,31 +1,36 @@
-Optimization ideas: (2023-02-25)
+Optimization ideas: (2023-03-04)
 
-Profiling with callgrind on a large flux file shows the following usage by
-main() when optimizations are disabled:
-	decoder::decode			38.81%
-	get_MFM_train			21.12%
-	MFM_train_data::operator+=	15.79%
-	get_delta_coding		 6.69%
-	get_flux_record			 6.95%
-	<others>			10.64%
+Profiling with callgrind on a very large flux file shows the following usage
+by main() when optimizations are disabled:
+	rabin_karp::find_matches	34.09%
+	find_approximate_period		24.99%
+	get_MFM_train			19.01%
+	decode_MFM_train		 9.12%
+	get_delta_coding		 6.16%
+	get_flux_record			 4.31%
 
-and optimized (possibly misleading):
-	decoder::decode	(+ all R-K)     41.59%
-	get_MFM_train			19.28%
-	get_flux_record:		 9.07%
-	get_delta_coding		 5.02%
+and optimized:
+	rabin_karp::find_matches	42.52%
+	get_flux_record			19.44%
+	get_MFM_train			15.53%
+	find_approximate_period		13.82%
+	decode_MFM_train		 7.31%
 
 Basically, this shows that the main hotspots are:
 	1. Hash table lookups as part of Rabin-Karp.
-	2. Rabin-Karp having to search over a longer haystack because MFM_train
-		is a bitfield, not run length encoded.
-	3. Memory shuffling due to the way the decoding process is modular
-		(starting anew from each preamble) but also not (everything
-		is concatenated into one higher-order stream).
-	4. Duplication of effort running Rabin-Karp inside decoder::decode.
+	2. Decompressing .flux data
+	3. Decoding the MFM train based on clock
 
-I can deal with point three (and probably will); I can't deal with 1 unless I
-change the search algorithm, and I could deal with 2 by making MFM_train run
-length encoded (or the number of half-clocks). But that would make the code
-much harder to read, so I'm not going to. Finally, #4 will go away once I've
-refactored properly.
+I can't really deal with the first point, short of using bitap to do quick
+bit-level searches for possible preamble locations. I can deal with the second
+by using a faster inflate library. The MFM train decoding is mostly due to
+having to call round() lots of times, but I could shave some time off by
+removing the residual error calculations as I'm no longer estimating
+the clock that way.
+
+I can drop find_approximate_period as it's not very good anyway.
+
+It might be possible to optimize further by making Rabin-Karp only find
+2 * sectors per track + 1 preambles (one for the IAM, then two per sector);
+then decoding it and seeing if everything is pristine. But I don't know if
+it's worth the increase in complexity; it's not like it's *slow* as it is.
