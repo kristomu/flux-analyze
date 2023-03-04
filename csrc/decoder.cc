@@ -67,9 +67,9 @@ class decoder {
 		// that wasn't.)
 		// Maybe this should be a global function instead? TODO,
 		// find out.
-		void dump_image(const decoded_tracks & tracks,
-			std::string file_prefix, int heads,
-			int sectors_per_track,
+		void dump_image(const decoded_tracks & d_tracks,
+			std::string file_prefix, int tracks,
+			int heads, int sectors_per_track,
 			int default_sector_size) const;
 };
 
@@ -235,9 +235,9 @@ void decoder::dump_to_file(const timeline & line_to_dump,
 	error_out.close();
 }
 
-void decoder::dump_image(const decoded_tracks & tracks,
-	std::string file_prefix, int heads, int sectors_per_track,
-	int default_sector_size) const {
+void decoder::dump_image(const decoded_tracks & d_tracks,
+	std::string file_prefix, int tracks, int heads,
+	int sectors_per_track, int default_sector_size) const {
 
 	// These values are hard-coded for IBM floppies for now, e.g.
 	// sectors starting at 1. Fix this later if required.
@@ -247,17 +247,17 @@ void decoder::dump_image(const decoded_tracks & tracks,
 	IDAM lookup;
 
 	int real_sectors = (int)std::max(sectors_per_track,
-		tracks.last_decoded_sector);
+		d_tracks.last_decoded_sector);
 
-	for (lookup.track = 0; lookup.track < 80; ++lookup.track) {
-		for (lookup.head = 0; lookup.head < 2; ++lookup.head) {
+	for (lookup.track = 0; lookup.track < tracks; ++lookup.track) {
+		for (lookup.head = 0; lookup.head < heads; ++lookup.head) {
 			for(lookup.sector = 1; lookup.sector <= real_sectors;
 					++lookup.sector) {
-				auto pos = tracks.sector_data.find(lookup);
+				auto pos = d_tracks.sector_data.find(lookup);
 
 				// If nothing was found, then add a blank region
 				// to the image and to the mask.
-				if (pos == tracks.sector_data.end()) {
+				if (pos == d_tracks.sector_data.end()) {
 					std::cout << "Couldn't find " << lookup.track << ", " << lookup.head << ", " << lookup.sector << std::endl;
 					std::vector<char> blank(default_sector_size, 0);
 					std::copy(blank.begin(), blank.end(),

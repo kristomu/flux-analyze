@@ -8,7 +8,7 @@
 
 #include "rabin_karp.h"
 
-#include <iostream>
+#include <limits>
 #include <vector>
 #include <algorithm>
 #include <stdexcept>
@@ -87,7 +87,7 @@ void rabin_karp::add(const std::vector<char> & needle, int needle_ID) {
 }
 
 std::vector<search_result> rabin_karp::find_matches(
-	const std::vector<char> & haystack) const {
+	const std::vector<char> & haystack, size_t max_matches) const {
 
 	hash_int search_hash = 0;
 
@@ -102,6 +102,7 @@ std::vector<search_result> rabin_karp::find_matches(
 	// to detect any needles at exactly the end of the haystack.
 
 	auto needle_ref = needles_by_hash.find(0);
+	size_t num_matches = 0;
 
 	for (size_t i = 0; i <= haystack.size(); ++i) {
 		// If we're far enough that a needle could exist - and we have
@@ -125,6 +126,10 @@ std::vector<search_result> rabin_karp::find_matches(
 
 				matches.push_back(search_result(start_pos,
 					needle_ref->second.ID));
+
+				if (num_matches++ == max_matches) {
+					return matches;
+				}
 			}
 		}
 
@@ -147,6 +152,12 @@ std::vector<search_result> rabin_karp::find_matches(
 	}
 
 	return matches;
+}
+
+std::vector<search_result> rabin_karp::find_matches(
+	const std::vector<char> & haystack) const {
+
+	return find_matches(haystack, std::numeric_limits<size_t>::max());
 }
 
 // Mostly for testing; doesn't return IDs.

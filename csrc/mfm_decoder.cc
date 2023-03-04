@@ -59,6 +59,12 @@
 // It works OK on good floppies, but returns an absolutely bizarre result
 // for RETRY-77-4-t69.0.flux.
 
+// I think what I need to do is use R-K to search for pieces from a timeslice
+// to find the next timeslice that's like it, because the periodicity isn't
+// exact (due to missing or inserted flux transitions), and thus it's going
+// to be harder than this... What I really want is to do an approximate
+// search of a timeslice to find out where it's repeated.
+
 double find_approximate_period(const std::vector<int> & in_fluxes) {
 	int snippet_length = 10;
 	int snippets_to_check = 360;
@@ -164,6 +170,7 @@ int main(int argc, char ** argv) {
 		PREAMBLE_ID_C2);
 
 	decoded_tracks decoded;
+	size_t last_track = 0;
 
 	for (const flux_record & f: flux_records) {
 
@@ -171,15 +178,14 @@ int main(int argc, char ** argv) {
 		decoder IBM_decoder;
 
 		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
-		try {
-			double flux_period = find_approximate_period(fluxes);
-			std::cout << "Estimated period: " << flux_period << std::endl;
-		} catch (std::runtime_error & e) {
-			std::cout << "Estimated period: [UNKNOWN]" << std::endl;
-		}
+		last_track = std::max(last_track, (size_t)f.track);
 
 		// Get locations/offsets into the flux where a magic preamble (A1A1A1
 		// or C2C2C2) might be found.
+
+		// Using a limited search strategy would cut the runtime to 62% for
+		// uncorrupted floppies, but I don't know if it's worth the complexity,
+		// so I won't do it (yet).
 
 		std::vector<char> ordinal_flux = get_delta_coding(fluxes);
 		std::vector<search_result> ordinal_locations =
@@ -224,9 +230,11 @@ int main(int argc, char ** argv) {
 			// to the start of the preamble. (TODO: lots of optimization
 			// can be done here. Not yet though.)
 			std::vector<search_result> preamble_locations =
-				preamble_search.find_matches(next.mfm_train.data);
+				preamble_search.find_matches(next.mfm_train.data, 1);
 			if (preamble_locations.empty()) {
-				// This happens when the clock estimate is wrong.
+				// This happens when the clock estimate is wrong, which
+				// shouldn't happen. (We should be signaling errors earlier
+				// in ordinal_search.)
 				throw std::logic_error("Found preamble but then couldn't!"
 					" What's going on?");
 			}
@@ -245,7 +253,8 @@ int main(int argc, char ** argv) {
 
 	// Very quick and dirty hard-coded values, fix later. TODO
 	decoder IBM_decoder_final;
-	IBM_decoder_final.dump_image(decoded, "output", 80, 18, 512);
+	IBM_decoder_final.dump_image(decoded, "output",
+		std::max((size_t)80, last_track+1), 2, 18, 512);
 
 	return 0;
 }

@@ -34,3 +34,8 @@ It might be possible to optimize further by making Rabin-Karp only find
 2 * sectors per track + 1 preambles (one for the IAM, then two per sector);
 then decoding it and seeing if everything is pristine. But I don't know if
 it's worth the increase in complexity; it's not like it's *slow* as it is.
+
+The following strategies *don't* work:
+	- Trying to inline round() in get_MFM_train: no difference in perf
+	- Trying to use const char & in flux_record::flux_record: no diff
+	- Trying to use resize() instead of reserve() in flux_record: nope

@@ -74,10 +74,15 @@ class rabin_karp {
 
 	public:
 		// Each needle is associated with an ID, and the find_matches
-		//
+		// function returns search results that contain the ID and
+		// index (location) of the match.
+
 		rabin_karp(size_t min_needle_length_in);
 		rabin_karp(const std::vector<char> & needle, int needle_ID);
 		void add(const std::vector<char> & needle, int needle_ID);
+		std::vector<search_result> find_matches(
+			const std::vector<char> & haystack,
+			size_t max_matches) const;
 		std::vector<search_result> find_matches(
 			const std::vector<char> & haystack) const;
 		std::vector<size_t> find_matching_indices(
