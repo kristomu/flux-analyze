@@ -47,7 +47,6 @@ class IDAM {
 		// The address mark doesn't include this, but since we're only
 		// reading, we just check the validity of the CRC at read time.
 		bool CRC_OK = false;
-		bool truncated;
 
 		// By convention, the raw bytes start at the IDAM preamble (A1A1A1XX
 		// or C2C2C2XX).
@@ -98,11 +97,15 @@ class DAM {
 		// Auxiliary info
 		bool CRC_OK = false;
 		bool deleted; // Is it a DAM or a DDAM?
-		bool truncated;
 
 		void set(std::vector<unsigned char> & raw_bytes, int datalen);
 		void print_info() const;
 		size_t byte_length() const;
+
+		// Determine the length that the DAM would be if its data length
+		// was datalen. Used for deserializing to avoid out-of-bounds
+		// memory access.
+		size_t byte_length(size_t datalen) const;
 
 		static size_t minimum_length();
 };

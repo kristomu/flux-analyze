@@ -101,44 +101,62 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 
 		size_t datalen;
 
-		switch(admark.mark_type) {
-			case A_IAM: break;
-			case A_IDAM:
-				admark.idam.set(this_chunk);
-				break;
+		// Try to deserialize. (Maybe this
+		// should be in address_mark instead? TODO?)
+		try {
+			switch(admark.mark_type) {
+				case A_IAM: break;
+				case A_IDAM:
+					admark.idam.set(this_chunk);
+					break;
 
-			// Handle data AMs.
-			case A_DAM:
-			case A_DDAM:
-				// If we have a preceding IDAM and the gap between the
-				// IDAM starts and the DAM starts is too small to fit
-				// another DAM, then we assume the previous IDAM goes
-				// with this DAM.
-				if (has_last_admark &&
-					last_admark.mark_type == A_IDAM && 
-					start - last_admark.byte_stream_index <
-						DAM::minimum_length()) {
+				// Handle data AMs.
+				case A_DAM:
+				case A_DDAM:
+					// If we have a preceding IDAM and the gap between the
+					// IDAM starts and the DAM starts is too small to fit
+					// another DAM, then we assume the previous IDAM goes
+					// with this DAM.
+					if (has_last_admark &&
+						last_admark.mark_type == A_IDAM &&
+						start - last_admark.byte_stream_index <
+							DAM::minimum_length()) {
 
-					datalen = last_admark.idam.datalen;
-					std::cout << "Matching IDAM found" << std::endl;
-				} else {
-					std::cout << "Guessing" << std::endl;
-					datalen = 512; // seems to be standard for floppies.
-				}
+						datalen = last_admark.idam.datalen;
+						std::cout << "Matching IDAM found" << std::endl;
+					} else {
+						std::cout << "Guessing" << std::endl;
+						datalen = 512; // seems to be standard for floppies.
+					}
+					admark.dam.set(this_chunk, datalen);
+					if (!admark.dam.CRC_OK) {
+						++ CRC_failures;
+					}
 
-				admark.dam.set(this_chunk, datalen);
-				if (!admark.dam.CRC_OK) {
-					++ CRC_failures;
-				}
+					if (has_last_admark && last_admark.mark_type == A_IDAM) {
+						full_sectors_found.push_back(
+							std::pair<address_mark, address_mark>
+							(last_admark, admark));
+					}
 
-				if (has_last_admark && last_admark.mark_type == A_IDAM) {
-					full_sectors_found.push_back(
-						std::pair<address_mark, address_mark>
-						(last_admark, admark));
-				}
+					break;
+				default: break;
+			}
+		} catch (std::out_of_range & e) {
+			// The address mark is truncated, so just skip it.
+			continue;
+		}
 
-				break;
-			default: break;
+		if (admark.mark_type != A_UNKNOWN) {
+			std::cout << "Debug: Byte length: " << admark.byte_length() << std::endl;
+			size_t admark_MFM_start = ts.sec_data.MFM_train_indices[0],
+				admark_MFM_end = ts.sec_data.MFM_train_indices[admark.byte_length()];
+			std::cout << "Debug: MFM train indices: " << admark_MFM_start <<
+				" to " << admark_MFM_end << std::endl;
+			size_t admark_flux_start = ts.mfm_train.flux_indices[admark_MFM_start],
+				admark_flux_end = ts.mfm_train.flux_indices[admark_MFM_end];
+			std::cout << "Debug: flux stream indices: " << admark_flux_start <<
+				" to " << admark_flux_end << " out of " << ts.flux_data.size() << std::endl;
 		}
 
 		std::cout << start;

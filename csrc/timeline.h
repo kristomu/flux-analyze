@@ -2,6 +2,7 @@
 #include "pulse_train.h"
 #include "sector_data.h"
 #include <stdexcept>
+#include <list>
 
 // Boundary conditions might be a problem... how do I get around that
 // short of storing the various decoding functions' internal state at
@@ -80,7 +81,7 @@ class timeslice {
 
 class timeline {
 	public:
-		std::vector<timeslice> timeslices;
+		std::list<timeslice> timeslices;
 
 		// Do all the accounting with offsets. NOTE: The previous
 		// timeslice must have been fully decoded (at all three

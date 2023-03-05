@@ -10,6 +10,11 @@ size_t IDAM::byte_length() { return 10; }
 
 void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 
+	if (raw_bytes.size() < byte_length()) {
+		throw std::out_of_range("IDAM: trying to deserialize"
+			" from too short an input!");
+	}
+
 	track = raw_bytes[4];
 	head = raw_bytes[5];
 	sector = raw_bytes[6];
@@ -21,8 +26,6 @@ void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 
 	CRC = msb_to_int(raw_bytes, 8, 2);
 	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin()+8) == CRC;
-
-	truncated = raw_bytes.size() < byte_length();
 }
 
 void IDAM::print_info() const {
@@ -42,11 +45,16 @@ void IDAM::print_info() const {
 // ------------ Data Address Mark (also used for Deleted Data) -----------
 
 size_t DAM::byte_length() const { return 4 + data.size() + 2; }
+size_t DAM::byte_length(size_t datalen) const { return 4 + datalen + 2; }
 size_t DAM::minimum_length() {
 	return 4 + IDAM_datalen[0] + 2;
 }
 
 void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
+	if (raw_bytes.size() < byte_length(datalen)) {
+		throw std::out_of_range("DAM: trying to deserialize"
+			" from too short an input!");
+	}
 
 	deleted = (raw_bytes[3] == 0xF8);
 	data = std::vector<char>(raw_bytes.begin() + 4,
@@ -54,8 +62,6 @@ void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
 
 	CRC = msb_to_int(raw_bytes, raw_bytes.begin() + 4 + datalen, 2);
 	CRC_OK = crc16(raw_bytes.begin(), raw_bytes.begin() + 4 + datalen) == CRC;
-
-	truncated = raw_bytes.size() < byte_length();
 }
 
 void DAM::print_info() const {
@@ -85,6 +91,11 @@ void IAM::print_info() const {
 void address_mark::set_address_mark_type(
 	const std::vector<unsigned char> & bytes) {
 
+	mark_type = A_UNKNOWN;
+	if (bytes.size() < 4) {
+		return;
+	}
+
 	std::vector<unsigned char> header_bytes(bytes.begin(),
 		bytes.begin()+4);
 
@@ -97,7 +108,6 @@ void address_mark::set_address_mark_type(
 	// address marks, the higher levels of the timeslice must reflect
 	// the "pristine" versions, not the corrupted ones.
 
-	mark_type = A_UNKNOWN;
 	// Common IAM
 	if(header_bytes == std::vector<u_char>({0xC2, 0xC2, 0xC2, 0xFC})) {
 		mark_type = A_IAM;
