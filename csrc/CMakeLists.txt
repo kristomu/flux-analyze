@@ -26,8 +26,12 @@ add_executable(${PROG_NAME}
 	timeline.cc
 	tools.cc)
 
+add_executable(copy_flux
+	copy_flux.cc)
+
 # Add SQLite and zlib libraries; if they're not found, the REQUIRED
 # should've erred out above, so we won't get any errors here.
 
 include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} )
 target_link_libraries( ${PROG_NAME} ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+target_link_libraries( copy_flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
