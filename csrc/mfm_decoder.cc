@@ -227,6 +227,21 @@ int main(int argc, char ** argv) {
 				end_idx = matches[j+1].match_location;
 			}
 
+			// HACK: If the matched area is too short for a preamble, then
+			// it's a false positive. Signal as such; this can happen with
+			// a preamble that's slightly too long, e.g. A1A1A1A1F8 (four
+			// instead of three). I have an idea for how to reduce this
+			// but we should in any case make a sanity check. Probably in a
+			// better way than this, though... TODO
+			// I need some way to thread this through the filter_matches...
+			// that it should be able to say "no, this must be truncated",
+			// so I don't have to rely on every preamble being the same length
+			// as I'm doing here.
+			if (end_idx - start_idx < preamble_info.get_preamble_by_ID(0).size()) {
+				std::cout << "Too short!\n";
+				next.status = TS_TRUNCATED;
+				continue;
+			}
 			std::cout << "Found " << m.match_location << " with clock " <<
 				m.estimated_clock << " (interval " << start_idx << "-" <<
 				end_idx << ")" << std::endl;
