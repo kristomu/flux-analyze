@@ -7,3 +7,5 @@ Test cases for C++ flux-analyze:
 - RETRY-77-4-t69.0: This is the same file as the one in the parent directory. It contains a chunk that can't be assigned a clock due to the bands being too close to each other. My Python code deals with this by not using a clock at all, just explicitly dealing with the bands.
 
 - x16_copying_uninitialized: This is a track from another DOS 5.0 disk. It caused an invalid read of two bytes (detected by Valgrind) due to a preamble signature being found right at the start of a track. Fixed.
+
+- 90-DDAM: A (miscategorized) DDAM from a floppy with only 0xf6. It triggered a bug where DDAMs were set on admark.dam instead; fixed.

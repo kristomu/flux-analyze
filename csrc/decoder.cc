@@ -85,8 +85,10 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 
 	std::vector<std::pair<address_mark, address_mark> > full_sectors_found;
 	size_t last_start = 0, i = 0;
+	size_t unknowns = 0;
 
 	for (const timeslice & ts: line_to_decode.timeslices) {
+		std::cout << std::endl;
 		sector_data sd = ts.sec_data;
 		// Quick and dirty (very ugly) way of separating out the
 		// vector belonging to this chunk. TODO: Fix later: either
@@ -139,6 +141,12 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 							(last_admark, admark));
 					}
 
+					// We've been working on the DAM; if it's actually a
+					// DDAM, swap them around.
+					if (admark.mark_type == A_DDAM) {
+						std::swap(admark.dam, admark.ddam);
+					}
+
 					break;
 				default: break;
 			}
@@ -157,6 +165,8 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 				admark_flux_end = ts.mfm_train.flux_indices[admark_MFM_end];
 			std::cout << "Debug: flux stream indices: " << admark_flux_start <<
 				" to " << admark_flux_end << " out of " << ts.flux_data.size() << std::endl;
+		} else {
+			++unknowns;
 		}
 
 		std::cout << start;
@@ -171,6 +181,8 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 		last_admark = admark;
 		has_last_admark = true;
 	}
+
+	std::cout << "Unknown AMs detected: " << unknowns << std::endl;
 
 	// This set contains the IDAMs corresponding to sectors with
 	// valid data.
@@ -253,6 +265,8 @@ void decoder::dump_to_file(const timeline & line_to_dump,
 	error_out.close();
 }
 
+// remove this ugly hack pronto. Refactor. decoder should be more
+// persistent and supply stats like these on demand.
 void decoder::dump_image(const decoded_tracks & d_tracks,
 	std::string file_prefix, int tracks, int heads,
 	int sectors_per_track, int default_sector_size) const {
@@ -267,11 +281,15 @@ void decoder::dump_image(const decoded_tracks & d_tracks,
 	int real_sectors = (int)std::max(sectors_per_track,
 		d_tracks.last_decoded_sector);
 
+	size_t OK_sectors = 0, all_sectors = 0;
+
 	for (lookup.track = 0; lookup.track < tracks; ++lookup.track) {
 		for (lookup.head = 0; lookup.head < heads; ++lookup.head) {
 			for(lookup.sector = 1; lookup.sector <= real_sectors;
 					++lookup.sector) {
 				auto pos = d_tracks.sector_data.find(lookup);
+
+				++all_sectors;
 
 				// If nothing was found, then add a blank region
 				// to the image and to the mask.
@@ -284,6 +302,8 @@ void decoder::dump_image(const decoded_tracks & d_tracks,
 						std::back_inserter(mask));
 					continue;
 				}
+
+				++OK_sectors;
 
 				std::vector<char> OK_mask(pos->second.data.size(), 0xFF);
 				std::copy(pos->second.data.begin(), pos->second.data.end(),
