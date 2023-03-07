@@ -250,7 +250,7 @@ int main(int argc, char ** argv) {
 				throw std::logic_error("Found preamble but then couldn't!"
 					" What's going on?");
 			}
-			next.has_preamble = true;
+			next.status = TS_PREAMBLE_FOUND;
 			next.preamble_offset = preamble_locations[0].idx;
 
 			next.sec_data = decode_MFM_train(next.mfm_train,

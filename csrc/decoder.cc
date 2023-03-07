@@ -51,7 +51,7 @@ class decoder {
 	public:
 		// Adds OK sectors to the given decoded_tracks
 		// structure.
-		void decode(const timeline & line_to_decode,
+		void decode(timeline & line_to_decode,
 			decoded_tracks & decoded);
 
 		// For debugging.
@@ -77,7 +77,7 @@ class decoder {
 // a total error count so that we can determine how many errors there are
 // in a given chunk decoding. TODO?
 
-void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) {
+void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	int CRC_failures = 0;
 
 	bool has_last_admark = false;
@@ -87,7 +87,7 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 	size_t last_start = 0, i = 0;
 	size_t unknowns = 0;
 
-	for (const timeslice & ts: line_to_decode.timeslices) {
+	for (timeslice & ts: line_to_decode.timeslices) {
 		std::cout << std::endl;
 		sector_data sd = ts.sec_data;
 		// Quick and dirty (very ugly) way of separating out the
@@ -106,6 +106,8 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 		// Try to deserialize. (Maybe this
 		// should be in address_mark instead? TODO?)
 		try {
+			ts.status = TS_DECODED_UNKNOWN;
+
 			switch(admark.mark_type) {
 				case A_IAM: break;
 				case A_IDAM:
@@ -150,7 +152,16 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 					break;
 				default: break;
 			}
+			try {
+				if (admark.is_OK()) {
+					ts.status = TS_DECODED_OK;
+				} else {
+					ts.status = TS_DECODED_BAD;
+				}
+			// Unknown address mark, can't tell.
+			} catch (std::runtime_error & e) {}
 		} catch (std::out_of_range & e) {
+			ts.status = TS_TRUNCATED;
 			// The address mark is truncated, so just skip it.
 			continue;
 		}
@@ -171,7 +182,7 @@ void decoder::decode(const timeline & line_to_decode, decoded_tracks & decoded) 
 
 		std::cout << start;
 		if (i++ > 0) {
-			std::cout << " (+" << start - last_start << ")";
+			std::cout << " (+" << start - last_start << ") ";
 		}
 		std::cout << "\t";
 		admark.print_info();

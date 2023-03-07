@@ -25,6 +25,13 @@
 // we'll need anyway to distinguish timeslices with preambles from
 // those without.
 
+enum slice_status {TS_UNKNOWN,
+	TS_PREAMBLE_FOUND,
+	TS_DECODED_UNKNOWN, // unknown preambles, say
+	TS_DECODED_BAD,
+	TS_DECODED_OK,
+	TS_TRUNCATED};
+
 class timeslice {
 	public:
 		// TODO, disambiguate from flux_record or refactor it.
@@ -42,11 +49,12 @@ class timeslice {
 		// goes here. A slice should ideally only contain at most one
 		// thing of interest.
 
+		slice_status status = TS_UNKNOWN;
+
 		// For now, if something has a preamble, then the sector data
 		// starts at that point. TODO: Fix this. Probably involving an
 		// iterator into the bit field of sector_data or somesuch.
 
-		bool has_preamble = false;
 		size_t preamble_offset; // in relative mfm_train offset terms.
 
 		size_t flux_data_end() const {

@@ -42,7 +42,7 @@ class IDAM {
 		// Abstract that away, either here or in address_mark.
 
 		int track, head, sector, datalen;
-		unsigned short CRC;
+		unsigned short CRC = 0;
 
 		// The address mark doesn't include this, but since we're only
 		// reading, we just check the validity of the CRC at read time.
@@ -62,6 +62,9 @@ class IDAM {
 		// give the minimum number of raw bytes required. In practice
 		// this is only used for DAMs.
 		static size_t minimum_length() { return byte_length(); }
+
+		// Is this address mark OK as far as we can tell?
+		bool is_OK() const { return CRC_OK; }
 
 		// Note that this operator does not inspect the CRC or datalen.
 		bool operator<(const IDAM & other) const {
@@ -83,6 +86,8 @@ class IDAM {
 			track = track_in;
 			head = head_in;
 			sector = sector_in;
+			CRC = 0;
+			CRC_OK = false;
 		}
 };
 
@@ -101,6 +106,7 @@ class DAM {
 		void set(std::vector<unsigned char> & raw_bytes, int datalen);
 		void print_info() const;
 		size_t byte_length() const;
+		bool is_OK() const { return CRC_OK; }
 
 		// Determine the length that the DAM would be if its data length
 		// was datalen. Used for deserializing to avoid out-of-bounds
@@ -119,6 +125,7 @@ class IAM {
 		void print_info() const;
 		static size_t byte_length();
 		static size_t minimum_length() { return byte_length(); }
+		bool is_OK() const { return true; }
 };
 
 
@@ -153,6 +160,7 @@ class address_mark {
 			const std::vector<unsigned char> & bytes);
 		void print_info() const;
 		size_t byte_length() const;
+		bool is_OK() const;
 
 		address_mark() {
 			dam.deleted = false;

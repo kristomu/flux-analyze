@@ -149,6 +149,8 @@ void address_mark::set_address_mark_type(
 	}
 }
 
+// TODO: Refactor.
+
 void address_mark::print_info() const {
 	switch(mark_type) {
 		default: std::cout << "?? Unknown address mark."; break;
@@ -166,5 +168,15 @@ size_t address_mark::byte_length() const {
 		case A_IDAM: return idam.byte_length();
 		case A_DAM: return dam.byte_length();
 		case A_DDAM: return ddam.byte_length();
+	}
+}
+
+bool address_mark::is_OK() const {
+	switch(mark_type) {
+		default: throw std::runtime_error("Unknown address mark."); break;
+		case A_IAM: return iam.is_OK();
+		case A_IDAM: return idam.is_OK();
+		case A_DAM: return dam.is_OK();
+		case A_DDAM: return ddam.is_OK();
 	}
 }
