@@ -5,3 +5,5 @@ Test cases for C++ flux-analyze:
 - 111_clock_failure_1: Currently produces a "found preamble but then couldn't" error with flux_analyze. Taken from a Microsoft Plus disk. This shouldn't happen and I need to figure out what's going on. The clock rate is also strange on this one.
 
 - RETRY-77-4-t69.0: This is the same file as the one in the parent directory. It contains a chunk that can't be assigned a clock due to the bands being too close to each other. My Python code deals with this by not using a clock at all, just explicitly dealing with the bands.
+
+- x16_copying_uninitialized: This is a track from another DOS 5.0 disk. It caused an invalid read of two bytes (detected by Valgrind) due to a preamble signature being found right at the start of a track. Fixed.

@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <iostream>
-#include <sqlite3.h>
 
 #include <fstream>
 #include <string>
@@ -172,6 +171,11 @@ int main(int argc, char ** argv) {
 	decoded_tracks decoded;
 	size_t last_track = 0;
 
+	if (flux_records.empty()) {
+		std::cout << "Error: flux database contains no data!" << std::endl;
+		return -1;
+	}
+
 	for (const flux_record & f: flux_records) {
 
 		std::vector<int> fluxes = f.fluxes;
@@ -209,6 +213,13 @@ int main(int argc, char ** argv) {
 			// to be a flux transition before the ordinal match. I would
 			// prefer to make this more elegant, but I'm not quite sure how.
 			// TODO?
+
+			// If the match was right at the start, then the drive started
+			// reading right at the edge of either a preamble or something
+			// that looks a lot like it. Because we don't have the previous
+			// byte, we can't tell, so skip.
+			if (matches[j].match_location == 0) { continue; }
+
 			size_t start_idx = matches[j].match_location - 1,
 				end_idx = fluxes.size();
 
@@ -217,7 +228,8 @@ int main(int argc, char ** argv) {
 			}
 
 			std::cout << "Found " << m.match_location << " with clock " <<
-				m.estimated_clock << std::endl;
+				m.estimated_clock << " (interval " << start_idx << "-" <<
+				end_idx << ")" << std::endl;
 
 			double error;
 
@@ -248,7 +260,6 @@ int main(int argc, char ** argv) {
 		}
 
 		IBM_decoder.decode(floppy_line, decoded);
-		IBM_decoder.dump_to_file(floppy_line, "data.dat", "errors.dat");
 	}
 
 	// Very quick and dirty hard-coded values, fix later. TODO
