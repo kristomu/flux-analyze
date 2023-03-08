@@ -159,9 +159,9 @@ int main(int argc, char ** argv) {
 	// Quick and dirty ordinal search experiments
 	IBM_preamble preamble_info;
 	rabin_karp ordinal_preamble_search(
-		preamble_info.ordinal_A1_sequence, PREAMBLE_ID_A1);
+		preamble_info.ordinal_A1_sequence.needle, PREAMBLE_ID_A1);
 	ordinal_preamble_search.add(
-		preamble_info.ordinal_C2_sequence, PREAMBLE_ID_C2);
+		preamble_info.ordinal_C2_sequence.needle, PREAMBLE_ID_C2);
 
 	rabin_karp preamble_search(preamble_info.A1_sequence,
 		PREAMBLE_ID_A1);
@@ -218,9 +218,12 @@ int main(int argc, char ** argv) {
 			// reading right at the edge of either a preamble or something
 			// that looks a lot like it. Because we don't have the previous
 			// byte, we can't tell, so skip.
-			if (matches[j].match_location == 0) { continue; }
+			size_t offset = preamble_info.ordinal_A1_sequence.offset;
+			if (matches[j].match_location < offset) {
+				continue;
+			}
 
-			size_t start_idx = matches[j].match_location - 1,
+			size_t start_idx = matches[j].match_location - offset,
 				end_idx = fluxes.size();
 
 			if (j < matches.size()-1) {

@@ -16,8 +16,9 @@
 #pragma once
 
 #include "tools.h"
-#include "preambles.h"
 #include "rabin_karp.h"
+#include "ordinal_pattern.h"
+#include "preambles.h"
 #include <vector>
 
 struct match_with_clock {
@@ -39,7 +40,7 @@ template<typename T> std::vector<char> get_delta_coding(
 	return out;
 }
 
-std::vector<char> get_ordinal_search_sequence(
+ordinal_pattern get_ordinal_search_sequence(
 	const std::vector<char> & MFM_train_search_sequence);
 
 double get_clock(const std::vector<char> & MFM_train_search_sequence,

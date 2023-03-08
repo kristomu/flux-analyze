@@ -23,65 +23,128 @@
 #include <iostream>
 #include <cmath>
 
+// The ordinal search process consists of two phases: In the first phase,
+// we do delta coding (e.g. 100101 becomes "second is shorter than first").
+// In the second phase, we try to fit a clock value to the result, thus
+// eliminating certain false positives and giving the MFM train decoder
+// the information it needs to try to decode the rest of the sector.
+
+// When fitting a clock to a particular ordinal match, there are two types
+// of constraint. The former happens at the edges and we'll call them
+// "at least" constraints, while the latter happens everywhere else.
+
+// For instance, consider that the MFM train to be matched is
+// 0010100010100. Then since we don't know how long the first
+// MFM run is - it could be 1001 or 10001 - we only know that the
+// first pulse delay must, when decoded, produce two or more zeroes.
+// Similarly, for the last MFM run, we match 100, which could be
+// either 1001 or 10001, so the situation is the same. For every
+// other MFM run (101, 10001, and 101), we know exactly how many
+// zeroes a correct clock should produce.
+class bound {
+	public:
+		int run;
+		bool at_least; // if true, at-least constraint; if false, exact.
+
+		bound(int run_in, bool al_in) {
+			run = run_in;
+			at_least = al_in;
+		}
+
+		bool operator<(const bound & rhs) { return run < rhs.run; }
+
+		operator int() const { return run; }
+};
+
 // Gets a run length encoding of zeroes broken up by ones, e.g.
-// 00101 becomes "2 1". The start must be a zero and there must be
-// a one before the end.
-std::vector<char> get_run_length_coding(
+// 00101 becomes "2 1".
+std::vector<bound> get_run_length_coding(
 	std::vector<char>::const_iterator start,
 	std::vector<char>::const_iterator end) {
 
-	char run_length = 0;
-	std::vector<char> run_length_sequence;
+	int run_length = 0;
+	std::vector<bound> run_length_sequence;
+
+	// the first run of zeroes is an at-least constraint
+	// because we don't know how long it actually is. (Making
+	// assumptions about the longest possible run would
+	// complicate things unnecessarily.)
+	bool at_least = true;
 
 	for (auto pos = start; pos != end; ++pos) {
 		if (*pos == 1) {
-			run_length_sequence.push_back(run_length);
+			run_length_sequence.push_back(
+				bound(run_length, at_least));
 			run_length = 0;
+			at_least = false;
 		} else {
 			++run_length;
 		}
 	}
 
+	// The last run length is also an at-least constraint,
+	// if there was any after the last one.
+	if (run_length > 0) {
+		run_length_sequence.push_back(
+			bound(run_length, true));
+	}
+
 	return run_length_sequence;
 }
 
-std::vector<char> get_ordinal_search_sequence(
+// Returns the ordinal search sequence as well as an offset
+// indicating how far into the actual thing we're searching for
+// that an ordinal match would be.
+ordinal_pattern get_ordinal_search_sequence(
 	const std::vector<char> & MFM_train_search_sequence) {
 
-	// The sequence must begin in a one, otherwise we don't
-	// know the length of the first flux delay (e.g. the
-	// search sequence is "0 1 0 0 1" and we don't know if it's
-	// really "1 0 1 0 0 1" or " 1 0 0 0 1 0 0 1").
-
-	if (MFM_train_search_sequence[0] != 1) {
-		throw std::logic_error("Can't make ordinal sequence from "
-			"pattern starting in 0");
-	}
-
-	// 1 means this entry must be greater (longer delay) than
-	// the previous one. -1 means shorter. 0 is not allowed yet,
-	// as there's no way we can match it with the noise in flux timings.
-	std::vector<char> ordinal_sequence;
+	// The format of the needle is: 1 means this entry must be greater
+	// (longer delay) than the previous one. -1 means shorter. 0 is not
+	// allowed yet, as there's no way we can match it with the noise in
+	// flux timings -- it would need a wildcard search.
+	ordinal_pattern out;
 
 	// First create the run-length encoding of the search sequence
 	// (e.g. 10010001 becomes 2 3). Then get the delta values: these
-	// form our search sequence. Skip the initial one.
+	// form our search sequence.
 
-	std::vector<char> run_length_sequence = get_run_length_coding(
-		MFM_train_search_sequence.begin() + 1,
+	std::vector<bound> run_length_sequence = get_run_length_coding(
+		MFM_train_search_sequence.begin(),
 		MFM_train_search_sequence.end());
 
-	std::vector<char> ordinal_search_sequence = get_delta_coding(
-		run_length_sequence);
+	// Skip past every at_least value, because we don't know what
+	// its value will be, we can't subtract from it either.
 
-	for (char digit: ordinal_search_sequence) {
+	for (out.offset = 0; out.offset < run_length_sequence.size() &&
+		run_length_sequence[out.offset].at_least; ++out.offset) {}
+
+	if (out.offset >= run_length_sequence.size()-1) {
+		throw std::invalid_argument("Ordinal search requires at "
+			"least two ones in the MFM train search pattern.");
+	}
+
+	// Since ordinal search is based on differences between
+	// adjacent flux delay values, it must necessarily start
+	// matching at the second proper flux.
+	// XXX: For some strange reason, this overestimates. Why is that?
+	++out.offset;
+
+	for (size_t i = out.offset; i < run_length_sequence.size(); ++i) {
+		// Skip any one-sided (at-least) constraints at the end as
+		// we don't know their exact value.
+		if (run_length_sequence[i].at_least) { continue; }
+		out.needle.push_back(sign(run_length_sequence[i].run -
+			run_length_sequence[i-1].run));
+	}
+
+	for (char digit: out.needle) {
 		if (digit == 0) {
 			throw std::logic_error("Can't make ordinal sequence with "
 				"more than one of the same clock length in a row!");
 		}
 	}
 
-	return ordinal_search_sequence;
+	return out;
 }
 
 // Given a match from an ordinal search, check if it's really a match to
@@ -117,32 +180,36 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	std::vector<int>::const_iterator match_start,
 	std::vector<int>::const_iterator fluxes_end) {
 
-	// A leading run of zeroes could technically be used, but it would be
-	// too complex and not worth it.
-	if (MFM_train_search_sequence[0] != 1) {
-		throw std::logic_error("Can't get clock from fluxes with "
-			"pattern starting in 0");
-	}
+	auto match_pos = match_start;
 
 	// First create the run length sequence to get the bands that
 	// fluxes should be assigned to.
-	std::vector<char> run_length_sequence = get_run_length_coding(
-		MFM_train_search_sequence.begin() + 1,
+	std::vector<bound> run_length_sequence = get_run_length_coding(
+		MFM_train_search_sequence.begin(),
 		MFM_train_search_sequence.end());
 
 	int num_bands = max_vec(run_length_sequence) + 1;
 
 	std::vector<std::vector<int> > bands(num_bands);
+	std::vector<std::vector<int> > at_least_bands(num_bands);
 
 	// Do a very ugly impression of the zip operator.
-	auto match_pos = match_start;
 	size_t i;
 
 	for (i = 0; i < run_length_sequence.size() &&
 		match_pos != fluxes_end; ++i) {
-		// Assign the flux at match_pos to the band it would be
-		// associated with if the match is correct.
-		bands[run_length_sequence[i]].push_back(*match_pos++);
+
+		if (run_length_sequence[i].at_least) {
+			// Assign the flux at match_pos to the lowest band it
+			// can be associated with if the match is correct.
+			at_least_bands[run_length_sequence[i].run].push_back(
+				*match_pos++);
+		} else {
+			// Assign the flux at match_pos to the band it would be
+			// associated with if the match is correct.
+			bands[run_length_sequence[i].run].push_back(
+				*match_pos++);
+		}
 	}
 
 	// Check for monotonicity (i.e. no interval overlap)
@@ -180,12 +247,25 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 		// round(min_in_band / half_clock) = band + 1, i.e.
 		// min_in_band / half_clock = band + 0.5 + epsilon,
 		// clock = 4 * min_in_band / (2 * band + 1)
-		clock_upper = std::min(clock_upper, 4 * min_in_band[band] / (2.0 * band + 1));
+		clock_upper = std::min(clock_upper,
+			4 * min_in_band[band] / (2.0 * band + 1));
 		// Similarly, the lowest clock we can have is so that
 		// round(max_in_band / half_clock) = band + 1,
 		// max_in_band / half_clock = band + 1.5 - epsilon,
 		// clock = 4 * max_in_band / (2 * band + 3)
-		clock_lower = std::max(clock_lower, 4 * max_in_band[band] / (2.0 * band + 3));
+		clock_lower = std::max(clock_lower,
+			4 * max_in_band[band] / (2.0 * band + 3));
+	}
+
+	// For every one-sided band value, the clock rate must be sufficiently
+	// low that the flux delay associated with this band value is at least
+	// at that band (it may be higher).
+
+	for (size_t band = 1; band < at_least_bands.size(); ++band) {
+		for (auto pulse_delay: at_least_bands[band]) {
+			clock_upper = std::min(clock_upper,
+				4 * pulse_delay / (2.0 * band + 1));
+		}
 	}
 
 	// Because neither clock_lower nor clock_upper will work, we
@@ -198,6 +278,11 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 		// There are distinct bands but it's not possible to fit
 		// a single clock to it. This needs Python-style manually
 		// defined bands. For now, signal the impossibility.
+
+		// This may also be triggered if it's impossible
+		// to pass the "at least this band" constraints; in that
+		// case we're dealing with an actual false positive. I may
+		// need to distinguish these later.
 		return -2;
 	}
 }
@@ -219,8 +304,15 @@ std::vector<match_with_clock> filter_matches(
 
 	for (const search_result & result: possible_matches) {
 		double clock =	get_clock(
-			preamble_info.get_offset_preamble_by_ID(result.ID),
-			flux_transitions.begin() + result.idx, flux_transitions.end());
+			preamble_info.get_preamble_by_ID(result.ID),
+			// KLUDGE, TODO fix later
+			// Somewhere around here we need to translate from
+			// the ordinal match location (which is offset due to
+			// delta coding and one-sided constraints) to the
+			// actual underlying match (which is not).
+			// Investigate and then TODO this. It's becoming
+			// a little overwhelming...
+			flux_transitions.begin() + result.idx - 1, flux_transitions.end());
 
 		if (clock < 0) {
 			continue; // false positive or impossible to fit clock

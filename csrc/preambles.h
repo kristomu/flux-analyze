@@ -30,6 +30,7 @@
 
 #pragma once
 #include <vector>
+#include "ordinal_pattern.h"
 
 // Search result IDs.
 const int PREAMBLE_ID_A1 = 0, PREAMBLE_ID_C2 = 1;
@@ -42,7 +43,7 @@ class IBM_preamble {
 			0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0};
 		std::vector<char> A1_sequence, C2_sequence;
 		std::vector<char> offset_A1_sequence, offset_C2_sequence;
-		std::vector<char> ordinal_A1_sequence, ordinal_C2_sequence;
+		ordinal_pattern ordinal_A1_sequence, ordinal_C2_sequence;
 
 		IBM_preamble();
 
