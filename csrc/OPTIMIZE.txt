@@ -39,3 +39,9 @@ The following strategies *don't* work:
 	- Trying to inline round() in get_MFM_train: no difference in perf
 	- Trying to use const char & in flux_record::flux_record: no diff
 	- Trying to use resize() instead of reserve() in flux_record: nope
+
+Replacing the Rabin-Karp hash with a less theoretically sound hash, and using
+an array instead of a hash table for the lookup (just to check how fast things
+can get when really unsafe) can reduce the speed by 30% (from 4 secs to 3.1
+secs on a particular flux image and computer). I'm not sure if it's worth it.
+Ultimately there's a limit to how fast things can go.
