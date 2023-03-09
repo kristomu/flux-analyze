@@ -38,3 +38,12 @@ std::vector<char> IBM_preamble::get_preamble_by_ID(int ID) const {
 			throw std::logic_error("IBM_preamble: unknown preamble ID");
 	}
 }
+
+size_t IBM_preamble::get_ordinal_offset_by_ID(int ID) const {
+	switch(ID) {
+		case PREAMBLE_ID_A1: return ordinal_A1_sequence.offset;
+		case PREAMBLE_ID_C2: return ordinal_C2_sequence.offset;
+		default:
+			throw std::logic_error("IBM_preamble: unknown preamble ID");
+	}
+}

@@ -27,11 +27,21 @@ struct match_with_clock {
 };
 
 // Returns the sign values of successive differences, e.g. 
-// 3 2 2 3 becomes -1 0 1.
+// 3 2 2 3 becomes -1 0 1. Setting padding to true adds a zero
+// to the start so that if out[i] = -1, that means the ith input
+// value was lower than the i-1th. This is used for proper alignment
+// and offset calculations. (Strictly speaking, the first value
+// should be NaN to represent that we don't know whether the zeroth
+// value is less than the -1st; but I don't want to drag floats into
+// this.)
 
 template<typename T> std::vector<char> get_delta_coding(
-	const T & in_vector) {
+	const T & in_vector, bool padding) {
 	std::vector<char> out;
+
+	if (padding) {
+		out.push_back(0);
+	}
 
 	for (size_t i = 1; i < in_vector.size(); ++i) {
 		out.push_back(sign(in_vector[i] - in_vector[i-1]));

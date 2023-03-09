@@ -43,4 +43,5 @@ class IBM_preamble {
 		IBM_preamble();
 
 		std::vector<char> get_preamble_by_ID(int ID) const;
+		size_t get_ordinal_offset_by_ID(int ID) const;
 };

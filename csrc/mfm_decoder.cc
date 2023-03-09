@@ -191,7 +191,7 @@ int main(int argc, char ** argv) {
 		// uncorrupted floppies, but I don't know if it's worth the complexity,
 		// so I won't do it (yet).
 
-		std::vector<char> ordinal_flux = get_delta_coding(fluxes);
+		std::vector<char> ordinal_flux = get_delta_coding(fluxes, true);
 		std::vector<search_result> ordinal_locations =
 			ordinal_preamble_search.find_matches(ordinal_flux);
 		std::vector<match_with_clock> matches =
@@ -268,7 +268,6 @@ int main(int argc, char ** argv) {
 			}
 			next.status = TS_PREAMBLE_FOUND;
 			next.preamble_offset = preamble_locations[0].idx;
-			std::cout << offset << " " << next.preamble_offset << std::endl;
 
 			next.sec_data = decode_MFM_train(next.mfm_train,
 				next.preamble_offset, next.mfm_train.data.size());

@@ -126,7 +126,6 @@ ordinal_pattern get_ordinal_search_sequence(
 	// Since ordinal search is based on differences between
 	// adjacent flux delay values, it must necessarily start
 	// matching at the second proper flux.
-	// XXX: For some strange reason, this overestimates. Why is that?
 	++out.offset;
 
 	for (size_t i = out.offset; i < run_length_sequence.size(); ++i) {
@@ -303,16 +302,16 @@ std::vector<match_with_clock> filter_matches(
 	match_with_clock true_match;
 
 	for (const search_result & result: possible_matches) {
+		// Due to various effects, an ordinal match at x corresponds
+		// to a flux match at x - offset. Get this offset.
+		// See get_ordinal_search_sequence for more info.
+		size_t offset = preamble_info.get_ordinal_offset_by_ID(
+			result.ID);
+
 		double clock =	get_clock(
 			preamble_info.get_preamble_by_ID(result.ID),
-			// KLUDGE, TODO fix later
-			// Somewhere around here we need to translate from
-			// the ordinal match location (which is offset due to
-			// delta coding and one-sided constraints) to the
-			// actual underlying match (which is not).
-			// Investigate and then TODO this. It's becoming
-			// a little overwhelming...
-			flux_transitions.begin() + result.idx - 1, flux_transitions.end());
+			flux_transitions.begin() + result.idx - offset,
+			flux_transitions.end());
 
 		if (clock < 0) {
 			continue; // false positive or impossible to fit clock
