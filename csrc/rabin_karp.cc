@@ -242,4 +242,20 @@ void test_rabin_karp() {
 			" with negative values.");
 	}
 
+	// Test leading_char_eliminator with needles longer than the hash int
+	// span - this might be relevant if I move to a faster hash.
+	needle = "Whereas disregard and contempt for human rights have resulted "
+		"in barbarous acts which have outraged the conscience of mankind";
+	haystack = "Whereas recognition of the inherent dignity and of the equal "
+		"and inalienable rights of all members of the human family is the "
+		"foundation of freedom, justice and peace in the world, "
+		"Whereas disregard and contempt for human rights have resulted in "
+		"barbarous acts which have outraged the conscience of mankind, and ";
+	rk = rabin_karp(str_to_vec(needle), 0);
+
+	if (!vec_eq(rk.find_matching_indices(str_to_vec(haystack)), {181})) {
+		throw std::logic_error("Rabin-Karp test: unexpected output with"
+			" extremely long needle.");
+	}
+
 }
