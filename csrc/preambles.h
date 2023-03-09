@@ -24,10 +24,6 @@
 
 // Maybe I don't even need the full 3x. (Consider that later.)
 
-// The whole "offset" thing is also rather ugly. Either fix or explain better
-// why it's there. Best would of course be to make ordinal search handle it
-// transparently, offsetting back results.
-
 #pragma once
 #include <vector>
 #include "ordinal_pattern.h"
@@ -42,11 +38,9 @@ class IBM_preamble {
 		std::vector<char> short_C2 = {
 			0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0};
 		std::vector<char> A1_sequence, C2_sequence;
-		std::vector<char> offset_A1_sequence, offset_C2_sequence;
 		ordinal_pattern ordinal_A1_sequence, ordinal_C2_sequence;
 
 		IBM_preamble();
 
 		std::vector<char> get_preamble_by_ID(int ID) const;
-		std::vector<char> get_offset_preamble_by_ID(int ID) const;
 };

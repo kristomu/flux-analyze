@@ -208,16 +208,16 @@ int main(int argc, char ** argv) {
 			// next one.
 			match_with_clock m = matches[j];
 
-			// We subtract one because the ordinal search starts from 1,
-			// and the magic preamble starts with a zero. Thus there has
-			// to be a flux transition before the ordinal match. I would
-			// prefer to make this more elegant, but I'm not quite sure how.
-			// TODO?
-
 			// If the match was right at the start, then the drive started
 			// reading right at the edge of either a preamble or something
 			// that looks a lot like it. Because we don't have the previous
 			// byte, we can't tell, so skip.
+
+			// TODO: Find out why the off-by-one happens here. I suspect
+			// that delta coding shifts everything by 1 because there's no
+			// delta for the first byte. Hence ordinal indices get shifted
+			// by one... Padding the ordinal with one fixes that but causes
+			// a problem inside ordinal_search.cc instead.
 			size_t offset = preamble_info.ordinal_A1_sequence.offset;
 			if (matches[j].match_location < offset) {
 				continue;
@@ -231,11 +231,9 @@ int main(int argc, char ** argv) {
 			}
 
 			// HACK: If the matched area is too short for a preamble, then
-			// it's a false positive. Signal as such; this can happen with
-			// a preamble that's slightly too long, e.g. A1A1A1A1F8 (four
-			// instead of three). I have an idea for how to reduce this
-			// but we should in any case make a sanity check. Probably in a
-			// better way than this, though... TODO
+			// it's a false positive. Signal as such; it's mostly irrelevant
+			// now due to non-overlapping search terms. However, it could
+			// still theoretically happen.
 			// I need some way to thread this through the filter_matches...
 			// that it should be able to say "no, this must be truncated",
 			// so I don't have to rely on every preamble being the same length
@@ -270,6 +268,7 @@ int main(int argc, char ** argv) {
 			}
 			next.status = TS_PREAMBLE_FOUND;
 			next.preamble_offset = preamble_locations[0].idx;
+			std::cout << offset << " " << next.preamble_offset << std::endl;
 
 			next.sec_data = decode_MFM_train(next.mfm_train,
 				next.preamble_offset, next.mfm_train.data.size());

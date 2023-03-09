@@ -15,31 +15,25 @@ IBM_preamble::IBM_preamble() {
 		std::copy(short_C2.begin(), short_C2.end(),
 			std::back_inserter(C2_sequence));
 	}
+	// Both preambles must end in 01 because that corresponds
+	// to an MFM encoding of a high bit, and the first bit
+	// after the preamble is always high (actually four bits
+	// are high since the first nibble of the AM designation
+	// is F, but ordinal doesn't like that.)
+	std::vector<char> high_bits = {0, 1};
+	std::copy(high_bits.begin(), high_bits.end(),
+		std::back_inserter(A1_sequence));
+	std::copy(high_bits.begin(), high_bits.end(),
+		std::back_inserter(C2_sequence));
 
-	// The first bit of both sequences is a zero, and we
-	// can't create an ordinal sequence from something starting
-	// in a zero. So start from index one instead.
-	offset_A1_sequence = std::vector<char>(
-		A1_sequence.begin() + 1, A1_sequence.end());
-	offset_C2_sequence = std::vector<char>(
-		C2_sequence.begin() + 1, C2_sequence.end());
-	ordinal_A1_sequence = get_ordinal_search_sequence(offset_A1_sequence);
-	ordinal_C2_sequence = get_ordinal_search_sequence(offset_C2_sequence);
+	ordinal_A1_sequence = get_ordinal_search_sequence(A1_sequence);
+	ordinal_C2_sequence = get_ordinal_search_sequence(C2_sequence);
 }
 
 std::vector<char> IBM_preamble::get_preamble_by_ID(int ID) const {
 	switch(ID) {
 		case PREAMBLE_ID_A1: return A1_sequence;
 		case PREAMBLE_ID_C2: return C2_sequence;
-		default:
-			throw std::logic_error("IBM_preamble: unknown preamble ID");
-	}
-}
-
-std::vector<char> IBM_preamble::get_offset_preamble_by_ID(int ID) const {
-	switch(ID) {
-		case PREAMBLE_ID_A1: return offset_A1_sequence;
-		case PREAMBLE_ID_C2: return offset_C2_sequence;
 		default:
 			throw std::logic_error("IBM_preamble: unknown preamble ID");
 	}
