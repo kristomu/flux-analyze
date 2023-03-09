@@ -11,3 +11,5 @@ Test cases for C++ flux-analyze:
 - x16_copying_uninitialized: This is a track from another DOS 5.0 disk. It caused an invalid read of two bytes (detected by Valgrind) due to a preamble signature being found right at the start of a track. Fixed.
 
 - 90-DDAM: A (miscategorized) DDAM from a floppy with only 0xf6. It triggered a bug where DDAMs were set on admark.dam instead; fixed.
+
+- 90_edge_AM: An AM that goes right up until the last flux delay lead to problems trying to find the end location of the MFM train (i.e. the first MFM train bit after it), because there's no such bit. Now special-cased.

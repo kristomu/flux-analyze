@@ -168,14 +168,21 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 
 		if (admark.mark_type != A_UNKNOWN) {
 			std::cout << "Debug: Byte length: " << admark.byte_length() << std::endl;
-			size_t admark_MFM_start = ts.sec_data.MFM_train_indices[0],
-				admark_MFM_end = ts.sec_data.MFM_train_indices[admark.byte_length()];
-			std::cout << "Debug: MFM train indices: " << admark_MFM_start <<
-				" to " << admark_MFM_end << std::endl;
-			size_t admark_flux_start = ts.mfm_train.flux_indices[admark_MFM_start],
-				admark_flux_end = ts.mfm_train.flux_indices[admark_MFM_end];
-			std::cout << "Debug: flux stream indices: " << admark_flux_start <<
-				" to " << admark_flux_end << " out of " << ts.flux_data.size() << std::endl;
+			size_t admark_MFM_start = ts.sec_data.MFM_train_indices[0];
+
+			if (admark.byte_length() == ts.sec_data.MFM_train_indices.size()) {
+				std::cout << "Debug: MFM train indices: " << admark_MFM_start
+					<< " and out." << std::endl;
+			} else {
+				size_t admark_MFM_end = ts.sec_data.MFM_train_indices[admark.byte_length()];
+				std::cout << "Debug: MFM train indices: " << admark_MFM_start
+					<< " to " << admark_MFM_end << std::endl;
+				size_t admark_flux_start = ts.mfm_train.flux_indices[admark_MFM_start],
+					admark_flux_end = ts.mfm_train.flux_indices[admark_MFM_end];
+				std::cout << "Debug: flux stream indices: " << admark_flux_start
+					<< " to " << admark_flux_end << " out of "
+					<< ts.flux_data.size() << std::endl;
+			}
 		} else {
 			++unknowns;
 		}
