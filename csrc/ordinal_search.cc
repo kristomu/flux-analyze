@@ -14,7 +14,6 @@
 // good idea of what the clock actually *is* at that position.
 
 #include "ordinal_search.h"
-#include "rabin_karp.h"
 #include "preambles.h"
 
 #include <stdexcept>

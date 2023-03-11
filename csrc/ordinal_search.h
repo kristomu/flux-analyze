@@ -15,11 +15,12 @@
 
 #pragma once
 
-#include "tools.h"
-#include "rabin_karp.h"
+#include <vector>
+
+#include "rabin_karp/rabin_karp.h"
 #include "ordinal_pattern.h"
 #include "preambles.h"
-#include <vector>
+#include "tools.h"
 
 struct match_with_clock {
 	size_t match_location;

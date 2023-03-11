@@ -8,11 +8,13 @@
 
 #pragma once
 #include <vector>
-#include <unordered_map>
+#include <iostream>
+#include <cstdint>
+#include <stdexcept>
 
-#include <stdlib.h>
+#include "hashtable.h"
 
-typedef int64_t hash_int;
+typedef uint32_t hash_int;
 
 // Each needle is associated with a different ID so that
 // it's possible to tell just what string was matched.
@@ -38,32 +40,14 @@ class search_result {
 		search_result() {}
 };
 
-class search_key {
-	public:
-		std::vector<char> needle;
-		int ID;
-
-		search_key(const std::vector<char> & needle_in, int ID_in) {
-			needle = needle_in;
-			ID = ID_in;
-		}
-
-		search_key() {}
-};
-
 class rabin_karp {
 	private:
-		std::unordered_map<hash_int,
-			search_key> needles_by_hash;
+		search_lookup needles_by_hash;
 
-		// These are magic constants; they should be
-		// reasonably good. The requirements are that
-		// both the factor and modulus should be prime,
-		// that the modulus is large, and that factor *
-		// modulus * max haystack value (here 255) is
-		// less than the maximum of the type.
-		static const hash_int factor = 3;
-		static const hash_int modulus = 9007199254740997;
+		// This is the magic constant of the Bernstein hash. See
+		// https://azrael.digipen.edu/~mmead/www/Courses/CS280/HashFunctions-1.html
+		// for discussion.
+		static const hash_int factor = 33;
 
 		size_t min_needle_length;
 		hash_int leading_char_eliminator;

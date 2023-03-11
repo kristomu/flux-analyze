@@ -37,8 +37,8 @@ rabin_karp::rabin_karp(size_t min_needle_length_in) {
 	leading_char_eliminator = 1;
 
 	for (size_t i = 0; i < min_needle_length_in; ++i) {
-		leading_char_eliminator = (leading_char_eliminator *
-			factor) % modulus;
+		leading_char_eliminator = leading_char_eliminator *
+			factor;
 	}
 }
 
@@ -71,19 +71,19 @@ void rabin_karp::add(const std::vector<char> & needle, int needle_ID) {
 	}
 
 	for (size_t i = start; i < needle.size(); ++i) {
-		needle_hash = (needle_hash * factor + 
-			(unsigned char)needle[i]) % modulus;
+		needle_hash = needle_hash * factor +
+			(unsigned char)needle[i];
 	}
 
 	// XXX: If two needles happen to have the same hash,
 	// we won't match every needle. Fix later if necessary.
 
-	if (needles_by_hash.find(needle_hash) != needles_by_hash.end()) {
+	if (needles_by_hash.find(needle_hash) != NULL) {
 		throw std::invalid_argument("Rabin-Karp: Multiple "
 			"strings with same hash not supported!");
 	}
 
-	needles_by_hash[needle_hash] = search_key(needle, needle_ID);
+	needles_by_hash.add(needle_hash, search_key(needle, needle_ID));
 }
 
 std::vector<search_result> rabin_karp::find_matches(
@@ -101,7 +101,7 @@ std::vector<search_result> rabin_karp::find_matches(
 	// starts at 0.) Hence we need one extra round through the loop
 	// to detect any needles at exactly the end of the haystack.
 
-	auto needle_ref = needles_by_hash.find(0);
+	const search_key * needle_ref = NULL;
 	size_t num_matches = 0;
 
 	for (size_t i = 0; i <= haystack.size(); ++i) {
@@ -115,17 +115,17 @@ std::vector<search_result> rabin_karp::find_matches(
 		// and it needs to be longer than the needle for that hash.
 
 		if (i >= min_needle_length &&
-			needle_ref != needles_by_hash.end() &&
-			needle_ref->second.needle.size() <= i) {
+			needle_ref != NULL &&
+			needle_ref->needle.size() <= i) {
 
-			size_t start_pos = i - needle_ref->second.needle.size();
+			size_t start_pos = i - needle_ref->needle.size();
 
 			// Eliminate false positives by verifying with brute force.
 			if (brute_force_search(haystack.begin() + start_pos,
-				haystack.end(), needle_ref->second.needle)) {
+				haystack.end(), needle_ref->needle)) {
 
 				matches.push_back(search_result(start_pos,
-					needle_ref->second.ID));
+					needle_ref->ID));
 
 				if (num_matches++ == max_matches) {
 					return matches;
@@ -137,17 +137,13 @@ std::vector<search_result> rabin_karp::find_matches(
 		// bytes.
 		if (i == haystack.size()) { continue; }
 
-		search_hash = (search_hash * factor +
-			(unsigned char)haystack[i]) % modulus;
+		search_hash = search_hash * factor +
+			(unsigned char)haystack[i];
 
 		// Wraparound might be a problem here... check later
 		if (i >= min_needle_length) {
-			search_hash -= (leading_char_eliminator *
-				(unsigned char)haystack[i-min_needle_length]) % modulus;
-
-			if (search_hash < 0) {
-				search_hash += modulus;
-			}
+			search_hash -= leading_char_eliminator *
+				(unsigned char)haystack[i-min_needle_length];
 		}
 	}
 

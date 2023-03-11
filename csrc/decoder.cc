@@ -8,7 +8,6 @@
 #include "address_marks.h"
 #include "pulse_train.h"
 #include "sector_data.h"
-#include "rabin_karp.h"
 #include "preambles.h"
 
 #include "timeline.h"

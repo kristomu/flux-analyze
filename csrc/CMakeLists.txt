@@ -17,7 +17,7 @@ find_package(SQLite3 REQUIRED)
 add_executable(${PROG_NAME}
 	address_marks.cc
 	mfm_decoder.cc
-	rabin_karp.cc
+	rabin_karp/rabin_karp.cc
 	flux_record.cc
 	pulse_train.cc
 	ordinal_search.cc
