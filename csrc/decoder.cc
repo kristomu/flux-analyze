@@ -86,15 +86,17 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	size_t last_start = 0, i = 0;
 	size_t unknowns = 0;
 
-	for (timeslice & ts: line_to_decode.timeslices) {
+	for (auto ts_pos = line_to_decode.timeslices.begin();
+		ts_pos != line_to_decode.timeslices.end(); ++ts_pos) {
+
 		std::cout << std::endl;
-		sector_data sd = ts.sec_data;
+		sector_data sd = ts_pos->sec_data;
 		// Quick and dirty (very ugly) way of separating out the
 		// vector belonging to this chunk. TODO: Fix later: either
 		// actually store multiple vectors in the MFM_train (probably
 		// best) or change all the signatures.
 		auto this_chunk = sd.decoded_data;
-		size_t start = ts.sector_data_begin;
+		size_t start = ts_pos->sector_data_begin;
 
 		address_mark admark;
 		admark.set_address_mark_type(this_chunk);
@@ -105,7 +107,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 		// Try to deserialize. (Maybe this
 		// should be in address_mark instead? TODO?)
 		try {
-			ts.status = TS_DECODED_UNKNOWN;
+			ts_pos->status = TS_DECODED_UNKNOWN;
 
 			switch(admark.mark_type) {
 				case A_IAM: break;
@@ -153,34 +155,42 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 			}
 			try {
 				if (admark.is_OK()) {
-					ts.status = TS_DECODED_OK;
+					ts_pos->status = TS_DECODED_OK;
 				} else {
-					ts.status = TS_DECODED_BAD;
+					ts_pos->status = TS_DECODED_BAD;
 				}
 			// Unknown address mark, can't tell.
 			} catch (std::runtime_error & e) {}
 		} catch (std::out_of_range & e) {
-			ts.status = TS_TRUNCATED;
+			ts_pos->status = TS_TRUNCATED;
 			// The address mark is truncated, so just skip it.
 			continue;
 		}
 
 		if (admark.mark_type != A_UNKNOWN) {
 			std::cout << "Debug: Byte length: " << admark.byte_length() << std::endl;
-			size_t admark_MFM_start = ts.sec_data.MFM_train_indices[0];
+			size_t admark_MFM_start = ts_pos->sec_data.MFM_train_indices[0];
 
-			if (admark.byte_length() == ts.sec_data.MFM_train_indices.size()) {
+			if (admark.byte_length() == ts_pos->sec_data.MFM_train_indices.size()) {
 				std::cout << "Debug: MFM train indices: " << admark_MFM_start
 					<< " and out." << std::endl;
 			} else {
-				size_t admark_MFM_end = ts.sec_data.MFM_train_indices[admark.byte_length()];
+				size_t admark_MFM_end = ts_pos->sec_data.MFM_train_indices[admark.byte_length()];
 				std::cout << "Debug: MFM train indices: " << admark_MFM_start
 					<< " to " << admark_MFM_end << std::endl;
-				size_t admark_flux_start = ts.mfm_train.flux_indices[admark_MFM_start],
-					admark_flux_end = ts.mfm_train.flux_indices[admark_MFM_end];
+				size_t admark_flux_start = ts_pos->mfm_train.flux_indices[admark_MFM_start],
+					admark_flux_end = ts_pos->mfm_train.flux_indices[admark_MFM_end];
 				std::cout << "Debug: flux stream indices: " << admark_flux_start
 					<< " to " << admark_flux_end << " out of "
-					<< ts.flux_data.size() << std::endl;
+					<< ts_pos->flux_data.size() << std::endl;
+
+				// Partition off the part that we still don't know what is, but
+				// only if the current chunk was decoded properly, because otherwise
+				// insertion or deletions may lead to splitting off too much.
+				if (ts_pos->status == TS_DECODED_OK) {
+					line_to_decode.split(ts_pos, admark.byte_length(),
+						TS_DECODED_OK, TS_UNKNOWN);
+				}
 			}
 		} else {
 			++unknowns;
@@ -197,6 +207,18 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 		last_start = start;
 		last_admark = admark;
 		has_last_admark = true;
+	}
+
+	// Show stats for unknown timeslices.
+
+	for (auto ts_pos = line_to_decode.timeslices.begin();
+		ts_pos != line_to_decode.timeslices.end(); ++ts_pos) {
+
+		if (ts_pos->status != TS_UNKNOWN) { continue; }
+
+		std::cout << "Unknown timeslice at " << ts_pos->sector_data_begin << " to " <<
+			ts_pos->sector_data_end() << " (" << ts_pos->sector_data_end()-
+			ts_pos->sector_data_begin << " bytes.)" << std::endl;
 	}
 
 	std::cout << "Unknown AMs detected: " << unknowns << std::endl;

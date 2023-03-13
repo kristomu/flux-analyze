@@ -99,4 +99,10 @@ class timeline {
 		// TODO: Some way to split a timeslice (for the refinement phase when
 		// excluding everything that belongs to a certain address mark chunk).
 		// It needs to update the linear (offset) view.
+
+		// This splits the given timeslice at the given (zero-indexed) sector
+		// data point.
+		void split(std::list<timeslice>::iterator & to_split,
+			size_t first_byte_after, slice_status before_status,
+			slice_status after_status);
 };
