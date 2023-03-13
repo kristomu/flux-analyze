@@ -47,16 +47,11 @@ void timeline::split(std::list<timeslice>::iterator & to_split,
 	size_t first_byte_after, slice_status before_status,
 	slice_status after_status) {
 
-	std::cout << "Split test: first byte after: " << first_byte_after << std::endl;
-
 	size_t MFM_end =
 		to_split->sec_data.MFM_train_indices[first_byte_after];
 
 	size_t flux_end =
 		to_split->mfm_train.flux_indices[MFM_end];
-
-	std::cout << "MFM end " << MFM_end << std::endl;
-	std::cout << "Flux end " << flux_end << std::endl;
 
 	timeslice ts_before = *to_split, ts_after;
 	ts_before.flux_data = std::vector(to_split->flux_data.begin(),
