@@ -11,6 +11,7 @@
 #include "preambles.h"
 
 #include "timeline.h"
+#include "tools.h"
 
 class decoded_tracks {
 	public:
@@ -54,9 +55,17 @@ class decoder {
 			decoded_tracks & decoded);
 
 		// For debugging.
-		void dump_to_file(const timeline & line_to_dump,
+		void dump_all_to_file(
+			const timeline & line_to_dump,
 			std::string data_filename,
 			std::string error_filename) const;
+
+		// Dumps the timeslices' sector data to files
+		// starting in prefix. NOTE: This might be
+		// complete garbage for unknowns because we generally
+		// don't know what the clock is if the timeslice is unknown.
+		void dump_sector_files(const timeline & line_to_dump,
+			std::string prefix) const;
 
 		// Dumps the image according to the decoded tracks to the
 		// files "file_prefix.img" for the image and "file_prefix.mask"
@@ -283,7 +292,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	std::cout << "Total timeslices: " << line_to_decode.timeslices.size() << std::endl;
 }
 
-void decoder::dump_to_file(const timeline & line_to_dump,
+void decoder::dump_all_to_file(const timeline & line_to_dump,
 	std::string data_filename, std::string error_filename) const {
 
 	std::ofstream data_out(data_filename, std::ios::out | std::ios::binary),
@@ -304,7 +313,42 @@ void decoder::dump_to_file(const timeline & line_to_dump,
 	error_out.close();
 }
 
-// remove this ugly hack pronto. Refactor. decoder should be more
+void decoder::dump_sector_files(const timeline & line_to_dump,
+	std::string prefix) const {
+
+	size_t i = 0;
+
+	for (const timeslice & ts: line_to_dump.timeslices) {
+		std::string prefix_ext = prefix + "_" + itos(i) + "_";
+		switch(ts.status) {
+			case TS_UNKNOWN: prefix_ext += "unknown"; break;
+			case TS_TRUNCATED: prefix_ext += "truncated"; break;
+			case TS_DECODED_OK: prefix_ext += "decoded_ok"; break;
+			case TS_DECODED_BAD: prefix_ext += "decoded_bad"; break;
+			case TS_DECODED_UNKNOWN: prefix_ext += "decoded_unknown"; break;
+			case TS_PREAMBLE_FOUND: prefix_ext += "preamble_found"; break;
+			default: prefix_ext += "status_error"; break;
+		}
+
+		std::ofstream data_out(prefix_ext + ".dat",
+			std::ios::out | std::ios::binary),
+			error_out(prefix_ext + ".mask",
+			std::ios::out | std::ios::binary),
+			flux_out(prefix_ext + ".flux",
+			std::ios::out | std::ios::binary);
+
+		data_out.write((char *)ts.sec_data.decoded_data.data(),
+			ts.sec_data.decoded_data.size());
+		error_out.write((char *)ts.sec_data.errors.data(),
+			ts.sec_data.errors.size());
+		std::copy(ts.flux_data.begin(), ts.flux_data.end(),
+			std::ostream_iterator<char>(flux_out));
+
+		++i;
+	}
+}
+
+// TODO: clean this hack up. Refactor. decoder should be more
 // persistent and supply stats like these on demand.
 void decoder::dump_image(const decoded_tracks & d_tracks,
 	std::string file_prefix, int tracks, int heads,

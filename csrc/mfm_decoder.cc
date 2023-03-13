@@ -276,6 +276,8 @@ int main(int argc, char ** argv) {
 		}
 
 		IBM_decoder.decode(floppy_line, decoded);
+		IBM_decoder.dump_sector_files(floppy_line,
+			"check_sectors/t" + itos(f.track) + "h" + itos(f.side));
 	}
 
 	// Very quick and dirty hard-coded values, fix later. TODO

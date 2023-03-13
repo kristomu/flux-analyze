@@ -1,7 +1,10 @@
 #pragma once
 
+#include <string>
 #include <vector>
 #include <algorithm>
+
+std::string itos (int source);
 
 // https://stackoverflow.com/a/14612943
 int sign(int x);

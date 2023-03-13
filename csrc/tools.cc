@@ -1,4 +1,12 @@
 #include "tools.h"
+#include <sstream>
+
+// int to string
+std::string itos (int source) {
+	std::ostringstream q;
+	q << source;
+	return (q.str());
+}
 
 int sign(int x) {
 	return (x > 0) - (x < 0);
