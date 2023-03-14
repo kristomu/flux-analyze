@@ -335,7 +335,8 @@ void decoder::dump_sector_files(const timeline & line_to_dump,
 			error_out(prefix_ext + ".mask",
 			std::ios::out | std::ios::binary),
 			flux_out(prefix_ext + ".flux",
-			std::ios::out | std::ios::binary);
+			std::ios::out | std::ios::binary),
+			mfm_out(prefix_ext + ".mfm", std::ios::out);
 
 		data_out.write((char *)ts.sec_data.decoded_data.data(),
 			ts.sec_data.decoded_data.size());
@@ -343,6 +344,14 @@ void decoder::dump_sector_files(const timeline & line_to_dump,
 			ts.sec_data.errors.size());
 		std::copy(ts.flux_data.begin(), ts.flux_data.end(),
 			std::ostream_iterator<char>(flux_out));
+
+		for (char bit: ts.mfm_train.data) {
+			if (bit == 0) {
+				mfm_out << "0";
+			} else {
+				mfm_out << "1";
+			}
+		}
 
 		++i;
 	}
