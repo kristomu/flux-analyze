@@ -211,13 +211,9 @@ int main(int argc, char ** argv) {
 			// If the match was right at the start, then the drive started
 			// reading right at the edge of either a preamble or something
 			// that looks a lot like it. Because we don't have the previous
-			// byte, we can't tell, so skip.
-
-			// TODO: Find out why the off-by-one happens here. I suspect
-			// that delta coding shifts everything by 1 because there's no
-			// delta for the first byte. Hence ordinal indices get shifted
-			// by one... Padding the ordinal with one fixes that but causes
-			// a problem inside ordinal_search.cc instead.
+			// byte, we can't tell, so skip. TODO: Use the correct sequence
+			// offset instead of A1 every time. Currently it doesn't matter
+			// (both preambles are equally long) but it might later.
 			size_t offset = preamble_info.ordinal_A1_sequence.offset;
 			if (matches[j].match_location < offset) {
 				continue;
