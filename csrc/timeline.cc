@@ -16,10 +16,6 @@ void timeline::insert(timeslice & next) {
 		throw std::invalid_argument("timeslice must have flux data");
 	}
 
-	if (next.mfm_train.data.empty()) {
-		throw std::invalid_argument("timeslice must have flux data");
-	}
-
 	timeslices.push_back(next);
 }
 

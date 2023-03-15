@@ -203,6 +203,22 @@ int main(int argc, char ** argv) {
 		// in order.
 		timeslice next;
 
+		// We need to include a first timeslice covering everything
+		// from the start of the flux record to the first match, even
+		// if we don't know what's in there. This is necessary to make
+		// flux offsets in the timeline line up with those in the flux
+		// record we're constructing it from.
+		timeslice first;
+
+		// I think this offset compensation should be put inside
+		// ordinal search... because it does know what it's looking for.
+		size_t offset = preamble_info.ordinal_A1_sequence.offset;
+		if (matches[0].match_location > offset) {
+			first.flux_data = std::vector<int>(f.fluxes.begin(),
+				f.fluxes.begin() + matches[0].match_location - offset);
+			floppy_line.insert(first);
+		}
+
 		for (size_t j = 0; j < matches.size(); ++j) {
 			// We want to decode everything from this preamble to the
 			// next one.
@@ -223,7 +239,7 @@ int main(int argc, char ** argv) {
 				end_idx = fluxes.size();
 
 			if (j < matches.size()-1) {
-				end_idx = matches[j+1].match_location;
+				end_idx = matches[j+1].match_location - offset;
 			}
 
 			// HACK: If the matched area is too short for a preamble, then
@@ -237,6 +253,7 @@ int main(int argc, char ** argv) {
 			if (end_idx - start_idx < preamble_info.get_preamble_by_ID(0).size()) {
 				std::cout << "Too short!\n";
 				next.status = TS_TRUNCATED;
+				floppy_line.insert(next);
 				continue;
 			}
 			std::cout << "Found " << m.match_location << " with clock " <<
@@ -272,6 +289,13 @@ int main(int argc, char ** argv) {
 				next.preamble_offset, next.mfm_train.data.size());
 
 			floppy_line.insert(next);
+
+			if (floppy_line.timeslices.rbegin()->flux_data_begin != start_idx) {
+				throw std::logic_error("Flux index start index mismatch. "
+					"Was " + 
+					itos(floppy_line.timeslices.rbegin()->flux_data_begin) +
+					" but should be " + itos(start_idx));
+			}
 		}
 
 		IBM_decoder.decode(floppy_line, decoded);
@@ -280,14 +304,20 @@ int main(int argc, char ** argv) {
 		// enabled instead. TODO: Refine this into a proper strategy approach.
 		// will probably need to involve splitting decode() into something
 		// that individually handles timeslices and something that sticks
-		// them together, but then how will we keep the sector chunks synchronized
-		// with the timeline? XXX.
+		// them together, but then how will we keep the sector chunks
+		// synchronized with the timeline? XXX.
+		// ff_track18 shows that dewarping can sometimes make it worse
+		// (going from DECODED_BAD to UNKNOWN). We need to keep the old one
+		// in that case.
 		bool did_recode = false;
 		for (timeslice & ts: floppy_line.timeslices) {
 			if (ts.status != TS_DECODED_BAD) { continue; }
 
 			double error;
-			std::cout << "Trying to dewarp " << ts.flux_data_begin << " - " << ts.flux_data_end();
+			std::cout << "Trying dewarp: offsets: flux: " <<
+				ts.flux_data_begin << " - " << ts.flux_data_end()
+				<< ", sd: " << ts.sector_data_begin
+				<< " - " << ts.sector_data_end();
 
 			// I'd really like get_mfm_train to automatically invalidate
 			// sec_data... something more lazy perhaps.
@@ -300,6 +330,7 @@ int main(int argc, char ** argv) {
 				ts.preamble_offset, ts.mfm_train.data.size());
 			std::cout << " -- error: " << error << std::endl;
 			did_recode = true;
+			ts.status = TS_UNKNOWN;
 		}
 
 		if (did_recode) {

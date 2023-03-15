@@ -71,10 +71,11 @@ class timeslice {
 			// let's add a bunch of tests to make sure it breaks early.
 			size_t candidate = flux_data_begin + flux_data.size();
 
-			if (candidate < *mfm_train.flux_indices.rbegin() +
+			if (!mfm_train.flux_indices.empty() &&
+				candidate < *mfm_train.flux_indices.rbegin() +
 				flux_data_begin) {
 				throw std::logic_error("Timeslice ordering inconsistency:"
-					" flux data end");
+					" flux data end doesn't match MFM train");
 			}
 			return candidate;
 		}
@@ -82,10 +83,11 @@ class timeslice {
 		size_t mfm_train_end() const {
 			size_t candidate = mfm_train_begin + mfm_train.data.size();
 
-			if (candidate < *sec_data.MFM_train_indices.rbegin() +
+			if (!sec_data.MFM_train_indices.empty() &&
+				candidate < *sec_data.MFM_train_indices.rbegin() +
 				mfm_train_begin) {
 				throw std::logic_error("Timeslice ordering inconsistency:"
-					" MFM train end");
+					" MFM train end doesn't match sector data");
 			}
 
 			return candidate;
