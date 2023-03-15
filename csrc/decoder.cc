@@ -397,7 +397,7 @@ void decoder::dump_image(const decoded_tracks & d_tracks,
 			for(lookup.sector = 1; lookup.sector <= real_sectors
 					&& keep_quiet; ++lookup.sector) {
 				auto pos = d_tracks.sector_data.find(lookup);
-				keep_quiet &= (pos != d_tracks.sector_data.end());
+				keep_quiet &= (pos == d_tracks.sector_data.end());
 			}
 
 			if (keep_quiet) {

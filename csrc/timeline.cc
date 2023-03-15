@@ -104,8 +104,25 @@ void timeline::split(std::list<timeslice>::iterator & to_split,
 	assert(ts_after.mfm_train_begin == ts_before.mfm_train_end());
 	assert(ts_after.sector_data_begin == ts_before.sector_data_end());
 
-	// Finally, insert.
+	// Finally, insert and update the indices.
 
 	*to_split = ts_after;
-	timeslices.insert(to_split, ts_before);
+	std::list<timeslice>::iterator new_first_part =
+		timeslices.insert(to_split, ts_before);
+	update(new_first_part);
+}
+
+void timeline::update(std::list<timeslice>::iterator & to_update) {
+
+	auto next = to_update, last = to_update;
+	++next;
+
+	while (next != timeslices.end()) {
+		next->flux_data_begin = last->flux_data_end();
+		next->mfm_train_begin = last->mfm_train_end();
+		next->sector_data_begin = last->sector_data_end();
+
+		++next;
+		++last;
+	}
 }

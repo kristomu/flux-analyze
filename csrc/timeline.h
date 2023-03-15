@@ -107,13 +107,18 @@ class timeline {
 		// levels).
 		void insert(timeslice & next);
 
-		// TODO: Some way to split a timeslice (for the refinement phase when
-		// excluding everything that belongs to a certain address mark chunk).
-		// It needs to update the linear (offset) view.
-
 		// This splits the given timeslice at the given (zero-indexed) sector
 		// data point.
 		void split(std::list<timeslice>::iterator & to_split,
 			size_t first_byte_after, slice_status before_status,
 			slice_status after_status);
+
+		// Update indices in case some data structures were changed.
+		// I kind of feel like this is ugly because we're not supposed to
+		// reach into the internals of the timeslices, because that can lead
+		// to the views going out of sync. On the other hand, if we don't
+		// reach into the internals, then we'll need tons of getters and
+		// setters. Eugh.
+		// The positions are really just memoized data.
+		void update(std::list<timeslice>::iterator & to_update);
 };
