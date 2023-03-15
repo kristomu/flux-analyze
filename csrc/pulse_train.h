@@ -61,3 +61,6 @@ MFM_train_data get_MFM_train(double clock,
 		const std::vector<int> & fluxes, double & error_out);
 
 double get_MFM_train_error(double clock, const std::vector<int> & fluxes);
+
+MFM_train_data get_MFM_train_dewarp(double clock,
+	const std::vector<int> & fluxes, double & error_out);

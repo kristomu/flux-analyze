@@ -51,9 +51,18 @@ class timeslice {
 
 		slice_status status = TS_UNKNOWN;
 
+		// We need to store the clock estimate, if any. (This may be
+		// replaced by explicit bands later.) -1 indicates no clock
+		// estimate is known. (A neat solution would be to make this
+		// mutable and then call, lazy style, a clock estimator if
+		// the clock is unknown.)
+		double clock_value = -1; // Unknown clock.
+
 		// For now, if something has a preamble, then the sector data
-		// starts at that point. TODO: Fix this. Probably involving an
-		// iterator into the bit field of sector_data or somesuch.
+		// starts at that point to avoid problems that would otherwise
+		// ensue from a lack of byte alignment. TODO? It's kind of a hack.
+		// Could I fix this? Perhaps with an iterator into a bit field.
+		// ... it's an awful lot of complexity just to make a point, though.
 
 		size_t preamble_offset; // in relative mfm_train offset terms.
 

@@ -196,7 +196,20 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 				// Partition off the part that we still don't know what is, but
 				// only if the current chunk was decoded properly, because otherwise
 				// insertion or deletions may lead to splitting off too much.
-				if (ts_pos->status == TS_DECODED_OK) {
+
+				// XXX: Disabled for now, because there's a known problem where it
+				// splits the padding off from an IDAM, and then on
+				// subsequent runs it fails to recognize that the DAM belongs to
+				// an IDAM before the padding (length checks can't work either
+				// because the padding may be as long *as* an IDAM, so we'll need
+				// to explicitly mark padding as, well, padding. This actually
+				// demonstrates an ambiguity in the DAM connection logic: what if
+				// we had IDAM, corrupted IDAM, DAM? It would falsely link
+				// the DAM to the first IDAM. But it's out of spec so don't
+				// worry about it; better is probably the logic we have now, but
+				// store the position of the last IDAM and check if it's less
+				// than a DAM's worth away...)
+				if (false && ts_pos->status == TS_DECODED_OK) {
 					line_to_decode.split(ts_pos, admark.byte_length(),
 						TS_DECODED_OK, TS_UNKNOWN);
 				}

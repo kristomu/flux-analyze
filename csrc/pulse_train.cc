@@ -93,3 +93,48 @@ double get_MFM_train_error(double clock, const std::vector<int> & fluxes) {
 	return error;
 }
 
+// Horribly cut and paste code, but it'll work as a proof of concept.
+// MFM decoder with dewarping based on exponential smoothing.
+// Better (and less cut and paste) stuff later.
+// The exponential smoothing has no right being this powerful, either
+// (not that I'm really complaining).
+
+MFM_train_data get_MFM_train_dewarp(double clock,
+		const std::vector<int> & fluxes, double & error_out) {
+
+	MFM_train_data train;
+	train.data.reserve(fluxes.size() * 8/3);
+	train.flux_indices.reserve(fluxes.size() * 8/3);
+
+	train.data.push_back(1);
+	train.flux_indices.push_back(0);
+
+	error_out = 0;
+	double bias = 0;
+
+	for (size_t i = 0; i < fluxes.size(); ++i) {
+		int flux_delay = fluxes[i] - bias;
+		int half_clocks = round((flux_delay*2)/clock);
+
+		int zeroes = std::max(0, half_clocks-1);
+
+		double error_term = flux_delay - half_clocks * clock/2.0;
+		error_out += error_term * error_term;
+
+		double alpha = 0.03;
+                bias = bias * (1-alpha) + error_term * alpha;
+
+		if (zeroes == 0) { continue; }
+
+		for (int j = 0; j < zeroes; ++j) {
+			train.data.push_back(0);
+			train.flux_indices.push_back(i);
+		}
+		train.data.push_back(1);
+		train.flux_indices.push_back(i);
+	}
+
+	error_out = std::sqrt(error_out / fluxes.size());
+
+	return train;
+}

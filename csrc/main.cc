@@ -241,14 +241,17 @@ int main(int argc, char ** argv) {
 			}
 			std::cout << "Found " << m.match_location << " with clock " <<
 				m.estimated_clock << " (interval " << start_idx << "-" <<
-				end_idx << ")" << std::endl;
+				end_idx << ")";
 
 			double error;
 
+			next.clock_value = m.estimated_clock;
 			next.flux_data = std::vector<int>(f.fluxes.begin() + start_idx,
 				f.fluxes.begin() + end_idx);
-			next.mfm_train = get_MFM_train(m.estimated_clock,
+			next.mfm_train = get_MFM_train(next.clock_value,
 					next.flux_data, error);
+
+			 std::cout << " -- Error: " << error << std::endl;
 
 			// HACK HACK: Find the offset from the start of the MFM train
 			// to the start of the preamble. (TODO: lots of optimization
@@ -272,6 +275,39 @@ int main(int argc, char ** argv) {
 		}
 
 		IBM_decoder.decode(floppy_line, decoded);
+
+		// Check for any faulty AMs and try to encode them with PLL mode
+		// enabled instead. TODO: Refine this into a proper strategy approach.
+		// will probably need to involve splitting decode() into something
+		// that individually handles timeslices and something that sticks
+		// them together, but then how will we keep the sector chunks synchronized
+		// with the timeline? XXX.
+		bool did_recode = false;
+		for (timeslice & ts: floppy_line.timeslices) {
+			if (ts.status != TS_DECODED_BAD) { continue; }
+
+			double error;
+			std::cout << "Trying to dewarp " << ts.flux_data_begin << " - " << ts.flux_data_end();
+
+			// I'd really like get_mfm_train to automatically invalidate
+			// sec_data... something more lazy perhaps.
+			// NOTE: As is, this will potentially invalidate the
+			// begin and end indices of every timeslice after this
+			// one! TODO!
+			ts.mfm_train = get_MFM_train_dewarp(ts.clock_value,
+					ts.flux_data, error);
+			ts.sec_data = decode_MFM_train(ts.mfm_train,
+				ts.preamble_offset, ts.mfm_train.data.size());
+			std::cout << " -- error: " << error << std::endl;
+			did_recode = true;
+		}
+
+		if (did_recode) {
+			// TODO: Don't be so chatty both times about what we've
+			// decoded. Probably needs a decoder redesign.
+			IBM_decoder.decode(floppy_line, decoded);
+		}
+
 		IBM_decoder.dump_sector_files(floppy_line,
 			"check_sectors/t" + itos(f.track) + "h" + itos(f.side));
 	}

@@ -13,3 +13,5 @@ Test cases for C++ flux-analyze:
 - 90-DDAM: A (miscategorized) DDAM from a floppy with only 0xf6. It triggered a bug where DDAMs were set on admark.dam instead; fixed.
 
 - 90_edge_AM: An AM that goes right up until the last flux delay lead to problems trying to find the end location of the MFM train (i.e. the first MFM train bit after it), because there's no such bit. Now special-cased.
+
+- ff_track18: A track from a floppy whose data is all 0xFF. This track, for some reason, produces more CRC errors after a second (dewarping) pass, even though dewarping is supposed to only be done on timeslices that failed decoding first time around. Investigate later.
