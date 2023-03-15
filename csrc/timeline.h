@@ -45,6 +45,10 @@ class timeslice {
 		size_t mfm_train_begin = 0;
 		size_t sector_data_begin = 0;
 
+		// TODO: Use this to connect to auxiliary data (usually address
+		// marks) so we don't pollute this structure too much.
+		uint64_t uuid = 0;
+
 		// Various information relating to the contents of this slice
 		// goes here. A slice should ideally only contain at most one
 		// thing of interest.
