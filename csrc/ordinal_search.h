@@ -23,6 +23,16 @@
 #include "tools.h"
 
 struct match_with_clock {
+
+	// The returned matches are offset-compensated so that they start at
+	// the first flux transition needed to get something that matches the
+	// ordinal search pattern. This may be slightly before the actual
+	// search pattern starts in the MFM train due to alignment issues.
+	// Offset here gives the offset into the MFM train where the pattern
+	// starts.
+
+	size_t offset;
+
 	size_t match_location;
 	double estimated_clock;
 };
@@ -60,7 +70,7 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 
 // This filters out a bunch of possible false positives.
 
-std::vector<match_with_clock> filter_matches(
+std::vector<match_with_clock> get_flux_matches(
 	const std::vector<int> & flux_transitions,
 	const std::vector<search_result> & possible_matches,
 	const IBM_preamble & preamble_info);

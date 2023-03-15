@@ -195,7 +195,7 @@ int main(int argc, char ** argv) {
 		std::vector<search_result> ordinal_locations =
 			ordinal_preamble_search.find_matches(ordinal_flux);
 		std::vector<match_with_clock> matches =
-			filter_matches(fluxes, ordinal_locations,
+			get_flux_matches(fluxes, ordinal_locations,
 				preamble_info);
 
 		timeline floppy_line;
@@ -206,16 +206,13 @@ int main(int argc, char ** argv) {
 		// We need to include a first timeslice covering everything
 		// from the start of the flux record to the first match, even
 		// if we don't know what's in there. This is necessary to make
-		// flux offsets in the timeline line up with those in the flux
+		// flux indices in the timeline line up with those in the flux
 		// record we're constructing it from.
 		timeslice first;
 
-		// I think this offset compensation should be put inside
-		// ordinal search... because it does know what it's looking for.
-		size_t offset = preamble_info.ordinal_A1_sequence.offset;
-		if (matches[0].match_location > offset) {
+		if (matches[0].match_location > 0) {
 			first.flux_data = std::vector<int>(f.fluxes.begin(),
-				f.fluxes.begin() + matches[0].match_location - offset);
+				f.fluxes.begin() + matches[0].match_location);
 			floppy_line.insert(first);
 		}
 
@@ -224,22 +221,11 @@ int main(int argc, char ** argv) {
 			// next one.
 			match_with_clock m = matches[j];
 
-			// If the match was right at the start, then the drive started
-			// reading right at the edge of either a preamble or something
-			// that looks a lot like it. Because we don't have the previous
-			// byte, we can't tell, so skip. TODO: Use the correct sequence
-			// offset instead of A1 every time. Currently it doesn't matter
-			// (both preambles are equally long) but it might later.
-			size_t offset = preamble_info.ordinal_A1_sequence.offset;
-			if (matches[j].match_location < offset) {
-				continue;
-			}
-
-			size_t start_idx = matches[j].match_location - offset,
+			size_t start_idx = matches[j].match_location,
 				end_idx = fluxes.size();
 
 			if (j < matches.size()-1) {
-				end_idx = matches[j+1].match_location - offset;
+				end_idx = matches[j+1].match_location;
 			}
 
 			// HACK: If the matched area is too short for a preamble, then
@@ -283,7 +269,7 @@ int main(int argc, char ** argv) {
 					" What's going on?");
 			}
 			next.status = TS_PREAMBLE_FOUND;
-			next.preamble_offset = preamble_locations[0].idx;
+			next.preamble_offset = m.offset;
 
 			next.sec_data = decode_MFM_train(next.mfm_train,
 				next.preamble_offset, next.mfm_train.data.size());
@@ -314,7 +300,7 @@ int main(int argc, char ** argv) {
 			if (ts.status != TS_DECODED_BAD) { continue; }
 
 			double error;
-			std::cout << "Trying dewarp: offsets: flux: " <<
+			std::cout << "Trying dewarp: indices: flux: " <<
 				ts.flux_data_begin << " - " << ts.flux_data_end()
 				<< ", sd: " << ts.sector_data_begin
 				<< " - " << ts.sector_data_end();

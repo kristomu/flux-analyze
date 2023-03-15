@@ -292,7 +292,7 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 // Also TODO: using the offset to offset the preamble so that it matches
 // the offset we gave the ordinal preamble... is kind of ugly.
 
-std::vector<match_with_clock> filter_matches(
+std::vector<match_with_clock> get_flux_matches(
 	const std::vector<int> & flux_transitions,
 	const std::vector<search_result> & possible_matches,
 	const IBM_preamble & preamble_info) {
@@ -307,6 +307,14 @@ std::vector<match_with_clock> filter_matches(
 		size_t offset = preamble_info.get_ordinal_offset_by_ID(
 			result.ID);
 
+		// If the match was right at the start, then the drive started
+		// reading right at the edge of either a preamble or something
+		// that looks a lot like it. Because we don't have the previous
+		// byte, we can't tell if the match is real, so skip.
+		if (offset > result.idx) {
+			continue;
+		}
+
 		double clock =	get_clock(
 			preamble_info.get_preamble_by_ID(result.ID),
 			flux_transitions.begin() + result.idx - offset,
@@ -316,7 +324,8 @@ std::vector<match_with_clock> filter_matches(
 			continue; // false positive or impossible to fit clock
 		}
 
-		true_match.match_location = result.idx;
+		true_match.match_location = result.idx - offset;
+		true_match.offset = offset;
 		true_match.estimated_clock = clock;
 
 		out.push_back(true_match);

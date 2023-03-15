@@ -390,16 +390,33 @@ void decoder::dump_image(const decoded_tracks & d_tracks,
 
 	for (lookup.track = 0; lookup.track < tracks; ++lookup.track) {
 		for (lookup.head = 0; lookup.head < heads; ++lookup.head) {
-			for(lookup.sector = 1; lookup.sector <= real_sectors;
-					++lookup.sector) {
+			// Check if we can't get *any* sectors for this track.
+			// If so, we'll just print an error message once instead
+			// of spamming the console.
+			bool keep_quiet = true;
+			for(lookup.sector = 1; lookup.sector <= real_sectors
+					&& keep_quiet; ++lookup.sector) {
 				auto pos = d_tracks.sector_data.find(lookup);
+				keep_quiet &= (pos != d_tracks.sector_data.end());
+			}
 
+			if (keep_quiet) {
+				std::cout << "Couldn't find any sector. t " <<
+					lookup.track << ", h " << lookup.head << std::endl;
+			}
+
+			for(lookup.sector = 1; lookup.sector <= real_sectors;
+				++lookup.sector) {
+
+				auto pos = d_tracks.sector_data.find(lookup);
 				++all_sectors;
 
 				// If nothing was found, then add a blank region
 				// to the image and to the mask.
 				if (pos == d_tracks.sector_data.end()) {
-					std::cout << "Couldn't find " << lookup.track << ", " << lookup.head << ", " << lookup.sector << std::endl;
+					if (!keep_quiet) {
+						std::cout << "Couldn't find " << lookup.track << ", " << lookup.head << ", " << lookup.sector << std::endl;
+					}
 					std::vector<char> blank(default_sector_size, 0);
 					std::copy(blank.begin(), blank.end(),
 						std::back_inserter(image));
