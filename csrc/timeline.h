@@ -3,6 +3,9 @@
 #include "sector_data.h"
 #include <stdexcept>
 #include <list>
+#include <set>
+
+#include <stdlib.h>
 
 // Boundary conditions might be a problem... how do I get around that
 // short of storing the various decoding functions' internal state at
@@ -32,12 +35,24 @@ enum slice_status {TS_UNKNOWN,
 	TS_DECODED_OK,
 	TS_TRUNCATED};
 
+// When splitting a timeslice, we have to determine which of the parts
+// gets to retain its status.
+// The strategies are PRESERVE_FIRST, PRESERVE_LAST, and PRESERVE_NEITHER.
+
+enum split_strategy {PRESERVE_FIRST,
+	PRESERVE_LAST, PRESERVE_NEITHER};
+
 class timeslice {
 	public:
 		// TODO, disambiguate from flux_record or refactor it.
 		std::vector<int> flux_data;
 		MFM_train_data mfm_train;
 		sector_data sec_data;
+
+		// This will be used to connect auxiliary data to a timeslice
+		// and enable iteration through still-unknown/non-decoded
+		// timeslices.
+		uint64_t ID = 0;
 
 		// These offsets give the relative position of the beginning
 		// of each chunk, relative to the first chunk in the timeline.
@@ -99,21 +114,35 @@ class timeslice {
 };
 
 class timeline {
+	private:
+		// Inserts a timeslice to the end of the line. It also handles
+		// ll the accounting with offsets. NOTE: The previous timeslice
+		// must have decoded flux data, TODO: fix that.
+		void insert(timeslice & next, int ID);
+
+		// This finds a random ID that's not in use.
+		// TODO: Properly randomize, this is a sketch.
+		int get_unused_ID() const;
+
 	public:
 		std::list<timeslice> timeslices;
+		std::set<uint64_t> used_IDs;
 
-		// Do all the accounting with offsets. NOTE: The previous
-		// timeslice must have been fully decoded (at all three
-		// levels).
+		// This function sets the ID of the inserted timeslice to a
+		// random value. ()
 		void insert(timeslice & next);
-
-		// TODO: Some way to split a timeslice (for the refinement phase when
-		// excluding everything that belongs to a certain address mark chunk).
-		// It needs to update the linear (offset) view.
 
 		// This splits the given timeslice at the given (zero-indexed) sector
 		// data point.
 		void split(std::list<timeslice>::iterator & to_split,
-			size_t first_byte_after, slice_status before_status,
-			slice_status after_status);
+			size_t first_byte_after, split_strategy strategy);
+
+		// Update indices in case some data structures were changed.
+		// I kind of feel like this is ugly because we're not supposed to
+		// reach into the internals of the timeslices, because that can lead
+		// to the views going out of sync. On the other hand, if we don't
+		// reach into the internals, then we'll need tons of getters and
+		// setters. Eugh.
+		// The positions are really just memoized data.
+		void update(std::list<timeslice>::iterator & to_update);
 };

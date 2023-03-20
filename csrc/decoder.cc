@@ -211,7 +211,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 				// than a DAM's worth away...)
 				if (false && ts_pos->status == TS_DECODED_OK) {
 					line_to_decode.split(ts_pos, admark.byte_length(),
-						TS_DECODED_OK, TS_UNKNOWN);
+						PRESERVE_FIRST);
 				}
 			}
 		} else {

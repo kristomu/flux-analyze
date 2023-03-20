@@ -4,7 +4,14 @@
 
 #include <assert.h>
 
-void timeline::insert(timeslice & next) {
+void timeline::insert(timeslice & next, int ID) {
+	// Enforce the uniqueness constraint: we can't have two
+	// with the same ID.
+	if (used_IDs.find(ID) != used_IDs.end()) {
+		throw std::invalid_argument("timeline: Can't insert timeslice"
+			" with non-unique ID");
+	}
+
 	if (!timeslices.empty()) {
 		auto lastptr = timeslices.rbegin();
 		next.flux_data_begin = lastptr->flux_data_end();
@@ -16,7 +23,25 @@ void timeline::insert(timeslice & next) {
 		throw std::invalid_argument("timeslice must have flux data");
 	}
 
+	next.ID = ID;
+	used_IDs.insert(ID);
+
 	timeslices.push_back(next);
+}
+
+int timeline::get_unused_ID() const {
+	// Find an unused ID (warning, may hang if you have 2^32
+	// timeslices, good luck!)
+	int proposed_ID;
+	do {
+		proposed_ID = random();
+	} while (used_IDs.find(proposed_ID) != used_IDs.end());
+
+	return proposed_ID;
+}
+
+void timeline::insert(timeslice & next) {
+	insert(next, get_unused_ID());
 }
 
 template<typename T> std::vector<T> after_idx(
@@ -40,8 +65,7 @@ template<typename T> std::vector<T> resize_and_subtract(
 }
 
 void timeline::split(std::list<timeslice>::iterator & to_split,
-	size_t first_byte_after, slice_status before_status,
-	slice_status after_status) {
+	size_t first_byte_after, split_strategy strategy) {
 
 	size_t MFM_end =
 		to_split->sec_data.MFM_train_indices[first_byte_after];
@@ -86,8 +110,22 @@ void timeline::split(std::list<timeslice>::iterator & to_split,
 	ts_after.mfm_train_begin = ts_before.mfm_train_begin + MFM_end;
 	ts_after.flux_data_begin = ts_before.flux_data_begin + flux_end;
 
-	ts_before.status = before_status;
-	ts_after.status = after_status;
+	int new_ID = get_unused_ID();
+
+	switch(strategy) {
+		case PRESERVE_FIRST:
+			ts_before.status = to_split->status;
+			ts_before.ID = to_split->ID;
+			ts_after.ID = new_ID;
+			break;
+		case PRESERVE_LAST:
+			ts_after.status = to_split->status;
+			ts_before.ID = new_ID;
+			ts_after.ID = to_split->ID;
+			break;
+		case PRESERVE_NEITHER:
+			break; // they're already both set to TS_UNKNOWN, do nothing
+	}
 
 	// The code above is pretty hairy, so do some sanity checks
 	// before we overwrite anything.
@@ -106,6 +144,7 @@ void timeline::split(std::list<timeslice>::iterator & to_split,
 
 	// Finally, insert.
 
+	used_IDs.insert(new_ID);
 	*to_split = ts_after;
 	timeslices.insert(to_split, ts_before);
 }
