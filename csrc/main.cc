@@ -305,11 +305,9 @@ int main(int argc, char ** argv) {
 				<< ", sd: " << ts.sector_data_begin
 				<< " - " << ts.sector_data_end();
 
-			// I'd really like get_mfm_train to automatically invalidate
-			// sec_data... something more lazy perhaps.
-			// NOTE: As is, this will potentially invalidate the
-			// begin and end indices of every timeslice after this
-			// one! TODO!
+			// I'd really like get_mfm_train to automatically
+			// handle the translation between levels on demand...
+			// something more lazy perhaps.
 			ts.mfm_train = get_MFM_train_dewarp(ts.clock_value,
 					ts.flux_data, error);
 			ts.sec_data = decode_MFM_train(ts.mfm_train,

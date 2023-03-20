@@ -88,8 +88,10 @@ class decoder {
 void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	int CRC_failures = 0;
 
-	bool has_last_admark = false;
-	address_mark last_admark;
+	// Used for linking DAMs to IDAMs to determine what
+	// sector a given DAM belongs to.
+	bool has_last_IDAM = false;
+	address_mark last_IDAM;
 
 	std::vector<std::pair<address_mark, address_mark> > full_sectors_found;
 	size_t last_start = 0, i = 0;
@@ -122,6 +124,8 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 				case A_IAM: break;
 				case A_IDAM:
 					admark.idam.set(this_chunk);
+					last_IDAM = admark;
+					has_last_IDAM = true;
 					break;
 
 				// Handle data AMs.
@@ -131,12 +135,11 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 					// IDAM starts and the DAM starts is too small to fit
 					// another DAM, then we assume the previous IDAM goes
 					// with this DAM.
-					if (has_last_admark &&
-						last_admark.mark_type == A_IDAM &&
-						start - last_admark.byte_stream_index <
+					if (has_last_IDAM &&
+						start - last_IDAM.byte_stream_index <
 							DAM::minimum_length()) {
 
-						datalen = last_admark.idam.datalen;
+						datalen = last_IDAM.idam.datalen;
 						std::cout << "Matching IDAM found" << std::endl;
 					} else {
 						std::cout << "Guessing" << std::endl;
@@ -147,10 +150,10 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 						++ CRC_failures;
 					}
 
-					if (has_last_admark && last_admark.mark_type == A_IDAM) {
+					if (has_last_IDAM) {
 						full_sectors_found.push_back(
 							std::pair<address_mark, address_mark>
-							(last_admark, admark));
+							(last_IDAM, admark));
 					}
 
 					// We've been working on the DAM; if it's actually a
@@ -197,19 +200,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 				// only if the current chunk was decoded properly, because otherwise
 				// insertion or deletions may lead to splitting off too much.
 
-				// XXX: Disabled for now, because there's a known problem where it
-				// splits the padding off from an IDAM, and then on
-				// subsequent runs it fails to recognize that the DAM belongs to
-				// an IDAM before the padding (length checks can't work either
-				// because the padding may be as long *as* an IDAM, so we'll need
-				// to explicitly mark padding as, well, padding. This actually
-				// demonstrates an ambiguity in the DAM connection logic: what if
-				// we had IDAM, corrupted IDAM, DAM? It would falsely link
-				// the DAM to the first IDAM. But it's out of spec so don't
-				// worry about it; better is probably the logic we have now, but
-				// store the position of the last IDAM and check if it's less
-				// than a DAM's worth away...)
-				if (false && ts_pos->status == TS_DECODED_OK) {
+				if (ts_pos->status == TS_DECODED_OK) {
 					line_to_decode.split(ts_pos, admark.byte_length(),
 						PRESERVE_FIRST);
 				}
@@ -227,8 +218,6 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 		std::cout << "\n";
 
 		last_start = start;
-		last_admark = admark;
-		has_last_admark = true;
 	}
 
 	// Show stats for unknown timeslices.
@@ -397,7 +386,7 @@ void decoder::dump_image(const decoded_tracks & d_tracks,
 			for(lookup.sector = 1; lookup.sector <= real_sectors
 					&& keep_quiet; ++lookup.sector) {
 				auto pos = d_tracks.sector_data.find(lookup);
-				keep_quiet &= (pos != d_tracks.sector_data.end());
+				keep_quiet &= (pos == d_tracks.sector_data.end());
 			}
 
 			if (keep_quiet) {
