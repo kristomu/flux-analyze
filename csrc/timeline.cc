@@ -4,7 +4,7 @@
 
 #include <assert.h>
 
-void timeline::insert(timeslice & next, int ID) {
+void timeline::insert(timeslice & next, slice_id_t ID) {
 	// Enforce the uniqueness constraint: we can't have two
 	// with the same ID.
 	if (used_IDs.find(ID) != used_IDs.end()) {
@@ -29,10 +29,10 @@ void timeline::insert(timeslice & next, int ID) {
 	timeslices.push_back(next);
 }
 
-int timeline::get_unused_ID() const {
+slice_id_t timeline::get_unused_ID() const {
 	// Find an unused ID (warning, may hang if you have 2^32
 	// timeslices, good luck!)
-	int proposed_ID;
+	slice_id_t proposed_ID;
 	do {
 		proposed_ID = random();
 	} while (used_IDs.find(proposed_ID) != used_IDs.end());
@@ -110,7 +110,7 @@ void timeline::split(std::list<timeslice>::iterator & to_split,
 	ts_after.mfm_train_begin = ts_before.mfm_train_begin + MFM_end;
 	ts_after.flux_data_begin = ts_before.flux_data_begin + flux_end;
 
-	int new_ID = get_unused_ID();
+	slice_id_t new_ID = get_unused_ID();
 
 	switch(strategy) {
 		case PRESERVE_FIRST:

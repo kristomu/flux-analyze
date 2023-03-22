@@ -42,6 +42,8 @@ enum slice_status {TS_UNKNOWN,
 enum split_strategy {PRESERVE_FIRST,
 	PRESERVE_LAST, PRESERVE_NEITHER};
 
+typedef int slice_id_t;
+
 class timeslice {
 	public:
 		// TODO, disambiguate from flux_record or refactor it.
@@ -52,17 +54,13 @@ class timeslice {
 		// This will be used to connect auxiliary data to a timeslice
 		// and enable iteration through still-unknown/non-decoded
 		// timeslices.
-		uint64_t ID = 0;
+		slice_id_t ID = 0;
 
 		// These offsets give the relative position of the beginning
 		// of each chunk, relative to the first chunk in the timeline.
 		size_t flux_data_begin = 0;
 		size_t mfm_train_begin = 0;
 		size_t sector_data_begin = 0;
-
-		// TODO: Use this to connect to auxiliary data (usually address
-		// marks) so we don't pollute this structure too much.
-		uint64_t uuid = 0;
 
 		// Various information relating to the contents of this slice
 		// goes here. A slice should ideally only contain at most one
@@ -122,15 +120,15 @@ class timeline {
 		// Inserts a timeslice to the end of the line. It also handles
 		// ll the accounting with offsets. NOTE: The previous timeslice
 		// must have decoded flux data, TODO: fix that.
-		void insert(timeslice & next, int ID);
+		void insert(timeslice & next, slice_id_t ID);
 
 		// This finds a random ID that's not in use.
 		// TODO: Properly randomize, this is a sketch.
-		int get_unused_ID() const;
+		slice_id_t get_unused_ID() const;
 
 	public:
 		std::list<timeslice> timeslices;
-		std::set<uint64_t> used_IDs;
+		std::set<slice_id_t> used_IDs;
 
 		// This function sets the ID of the inserted timeslice to a
 		// random value. ()

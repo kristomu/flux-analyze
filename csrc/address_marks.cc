@@ -171,9 +171,11 @@ size_t address_mark::byte_length() const {
 	}
 }
 
-bool address_mark::is_OK() const {
+maybe address_mark::is_OK() const {
 	switch(mark_type) {
-		default: throw std::runtime_error("Unknown address mark."); break;
+		 // We can't tell if the address mark is OK if we don't know
+		// what it is.
+		default: return MAYBE;
 		case A_IAM: return iam.is_OK();
 		case A_IDAM: return idam.is_OK();
 		case A_DAM: return dam.is_OK();

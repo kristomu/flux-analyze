@@ -23,30 +23,13 @@ class decoded_tracks {
 
 class decoder {
 	private:
+		//std::map<slice_id_t, address_mark> address_marks;
 		std::vector<address_mark> address_marks;
 
-		// TODO later: something that keeps this cache from going
-		// stale if the user inputs one MFM train when doing calc_preamble,
-		// and then another with decode.
-		bool preamble_locations_calculated;
-		std::vector<size_t> preamble_locations;
-
-		// QND fix later: gets an index into the MFM train
-		// consistent with the beginning of the idx-th preamble,
-		// or the end of the array if idx is too large.
-		size_t get_pos_by_idx(
-			const std::vector<char> & MFM_train, size_t idx) const {
-
-			if (!preamble_locations_calculated) {
-				throw std::runtime_error("Preambles not located yet");
-			}
-
-			if (idx < preamble_locations.size()) {
-				return preamble_locations[idx];
-			} else {
-				return MFM_train.size();
-			}
-		}
+		address_mark deserialize(
+			std::vector<unsigned char> & raw_bytes,
+			size_t byte_stream_start, bool has_last_IDAM,
+			const address_mark last_IDAM) const;
 
 	public:
 		// Adds OK sectors to the given decoded_tracks
@@ -81,6 +64,55 @@ class decoder {
 			int default_sector_size) const;
 };
 
+address_mark decoder::deserialize(
+	std::vector<unsigned char> & raw_bytes, size_t byte_stream_start,
+	bool has_last_IDAM, const address_mark last_IDAM) const {
+
+	address_mark admark;
+	admark.set_address_mark_type(raw_bytes);
+	admark.byte_stream_index = byte_stream_start;
+
+	size_t datalen; // Data length for DAMs.
+
+	switch(admark.mark_type) {
+		case A_IAM: break;
+		case A_IDAM:
+			admark.idam.set(raw_bytes);
+			break;
+
+		// Handle data AMs.
+		case A_DAM:
+		case A_DDAM:
+			// If we have a preceding IDAM and the gap between the
+			// IDAM starts and the DAM starts is too small to fit
+			// another DAM, then we assume the previous IDAM goes
+			// with this DAM.
+			if (has_last_IDAM &&
+				byte_stream_start - last_IDAM.byte_stream_index <
+					DAM::minimum_length()) {
+
+				datalen = last_IDAM.idam.datalen;
+				std::cout << "Matching IDAM found" << std::endl;
+			} else {
+				std::cout << "Guessing" << std::endl;
+				datalen = 512; // seems to be standard for floppies.
+			}
+			admark.dam.set(raw_bytes, datalen);
+
+			// We've been working on the DAM; if it's actually a
+			// DDAM, swap them around.
+			if (admark.mark_type == A_DDAM) {
+				std::swap(admark.dam, admark.ddam);
+			}
+
+			break;
+		default: break;
+	}
+
+	return admark;
+}
+
+
 // This is still in need of some refactoring. sector_data should also have
 // a total error count so that we can determine how many errors there are
 // in a given chunk decoding. TODO?
@@ -109,74 +141,27 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 		auto this_chunk = sd.decoded_data;
 		size_t start = ts_pos->sector_data_begin;
 
-		address_mark admark;
-		admark.set_address_mark_type(this_chunk);
-		admark.byte_stream_index = start;
+		address_mark admark = deserialize(sd.decoded_data,
+			ts_pos->sector_data_begin, has_last_IDAM,
+			last_IDAM);
 
-		size_t datalen;
+		if (admark.mark_type == A_IDAM) {
+			last_IDAM = admark;
+			has_last_IDAM = true;
+		}
 
-		// Try to deserialize. (Maybe this
-		// should be in address_mark instead? TODO?)
-		try {
-			ts_pos->status = TS_DECODED_UNKNOWN;
+		// Only if a data mark.
+		if ((admark.mark_type == A_DAM || admark.mark_type == A_DDAM)
+			&& has_last_IDAM) {
+			full_sectors_found.push_back(
+				std::pair<address_mark, address_mark>
+				(last_IDAM, admark));
+		}
 
-			switch(admark.mark_type) {
-				case A_IAM: break;
-				case A_IDAM:
-					admark.idam.set(this_chunk);
-					last_IDAM = admark;
-					has_last_IDAM = true;
-					break;
-
-				// Handle data AMs.
-				case A_DAM:
-				case A_DDAM:
-					// If we have a preceding IDAM and the gap between the
-					// IDAM starts and the DAM starts is too small to fit
-					// another DAM, then we assume the previous IDAM goes
-					// with this DAM.
-					if (has_last_IDAM &&
-						start - last_IDAM.byte_stream_index <
-							DAM::minimum_length()) {
-
-						datalen = last_IDAM.idam.datalen;
-						std::cout << "Matching IDAM found" << std::endl;
-					} else {
-						std::cout << "Guessing" << std::endl;
-						datalen = 512; // seems to be standard for floppies.
-					}
-					admark.dam.set(this_chunk, datalen);
-					if (!admark.dam.CRC_OK) {
-						++ CRC_failures;
-					}
-
-					if (has_last_IDAM) {
-						full_sectors_found.push_back(
-							std::pair<address_mark, address_mark>
-							(last_IDAM, admark));
-					}
-
-					// We've been working on the DAM; if it's actually a
-					// DDAM, swap them around.
-					if (admark.mark_type == A_DDAM) {
-						std::swap(admark.dam, admark.ddam);
-					}
-
-					break;
-				default: break;
-			}
-			try {
-				if (admark.is_OK()) {
-					ts_pos->status = TS_DECODED_OK;
-				} else {
-					ts_pos->status = TS_DECODED_BAD;
-				}
-			// Unknown address mark, can't tell.
-			} catch (std::runtime_error & e) {}
-		} catch (std::out_of_range & e) {
-			ts_pos->status = TS_TRUNCATED;
-			// The address mark is truncated, so just skip it.
-			continue;
+		switch (admark.is_OK()) {
+			case YES: ts_pos->status = TS_DECODED_OK; break;
+			case NO: ts_pos->status = TS_DECODED_BAD; break;
+			case MAYBE: ts_pos->status = TS_DECODED_UNKNOWN; break;
 		}
 
 		if (admark.mark_type != A_UNKNOWN) {

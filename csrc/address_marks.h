@@ -20,6 +20,7 @@
 // mark, not ordinary data.
 
 enum address_mark_t { A_IAM, A_IDAM, A_DAM, A_DDAM, A_UNKNOWN };
+enum maybe {YES, NO, MAYBE};
 
 // http://nerdlypleasures.blogspot.com/2015/11/ibm-pc-floppy-disks-deeper-look-at-disk.html
 const int MAX_DATALEN_IDX = 6;
@@ -64,7 +65,7 @@ class IDAM {
 		static size_t minimum_length() { return byte_length(); }
 
 		// Is this address mark OK as far as we can tell?
-		bool is_OK() const { return CRC_OK; }
+		maybe is_OK() const { return CRC_OK ? YES : NO; }
 
 		// Note that this operator does not inspect the CRC or datalen.
 		bool operator<(const IDAM & other) const {
@@ -106,7 +107,7 @@ class DAM {
 		void set(std::vector<unsigned char> & raw_bytes, int datalen);
 		void print_info() const;
 		size_t byte_length() const;
-		bool is_OK() const { return CRC_OK; }
+		maybe is_OK() const { return CRC_OK ? YES : NO; }
 
 		// Determine the length that the DAM would be if its data length
 		// was datalen. Used for deserializing to avoid out-of-bounds
@@ -125,7 +126,7 @@ class IAM {
 		void print_info() const;
 		static size_t byte_length();
 		static size_t minimum_length() { return byte_length(); }
-		bool is_OK() const { return true; }
+		maybe is_OK() const { return YES; }
 };
 
 
@@ -160,7 +161,7 @@ class address_mark {
 			const std::vector<unsigned char> & bytes);
 		void print_info() const;
 		size_t byte_length() const;
-		bool is_OK() const;
+		maybe is_OK() const;
 
 		address_mark() {
 			dam.deleted = false;
