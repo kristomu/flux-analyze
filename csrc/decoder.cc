@@ -118,7 +118,7 @@ address_mark decoder::deserialize(
 // in a given chunk decoding. TODO?
 
 void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
-	int CRC_failures = 0;
+	int failures = 0;
 
 	// Used for linking DAMs to IDAMs to determine what
 	// sector a given DAM belongs to.
@@ -126,24 +126,25 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	address_mark last_IDAM;
 
 	std::vector<std::pair<address_mark, address_mark> > full_sectors_found;
-	size_t last_start = 0, i = 0;
+	size_t last_start = 0, start = 0, i = 0;
 	size_t unknowns = 0;
 
 	for (auto ts_pos = line_to_decode.timeslices.begin();
 		ts_pos != line_to_decode.timeslices.end(); ++ts_pos) {
 
 		std::cout << std::endl;
-		sector_data sd = ts_pos->sec_data;
-		// Quick and dirty (very ugly) way of separating out the
-		// vector belonging to this chunk. TODO: Fix later: either
-		// actually store multiple vectors in the MFM_train (probably
-		// best) or change all the signatures.
-		auto this_chunk = sd.decoded_data;
-		size_t start = ts_pos->sector_data_begin;
+		address_mark admark;
+		start = ts_pos->sector_data_begin;
 
-		address_mark admark = deserialize(sd.decoded_data,
-			ts_pos->sector_data_begin, has_last_IDAM,
-			last_IDAM);
+		try {
+			admark = deserialize(ts_pos->sec_data.decoded_data,
+				ts_pos->sector_data_begin, has_last_IDAM,
+				last_IDAM);
+		} catch (std::out_of_range & e) {
+			// Truncated
+			ts_pos->status = TS_TRUNCATED;
+			continue;
+		}
 
 		if (admark.mark_type == A_IDAM) {
 			last_IDAM = admark;
@@ -160,7 +161,10 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 
 		switch (admark.is_OK()) {
 			case YES: ts_pos->status = TS_DECODED_OK; break;
-			case NO: ts_pos->status = TS_DECODED_BAD; break;
+			case NO:
+				ts_pos->status = TS_DECODED_BAD;
+				++failures;
+				break;
 			case MAYBE: ts_pos->status = TS_DECODED_UNKNOWN; break;
 		}
 
@@ -273,7 +277,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 		std::cout << "\n";
 	}
 
-	std::cout << "CRC failures: " << CRC_failures << std::endl;
+	std::cout << "Address mark failures: " << failures << std::endl;
 	std::cout << "Sectors recovered: " << unique_OK_sectors.size() << " out of " << num_sectors << std::endl;
 	std::cout << "Unique sector metadata chunks: " << all_sectors.size() << std::endl;
 	std::cout << "Total timeslices: " << line_to_decode.timeslices.size() << std::endl;

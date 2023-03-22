@@ -27,7 +27,7 @@ class MFM_train_data {
 		// need to iterate and then fix.
 		MFM_train_data & operator+= (const MFM_train_data & after) {
 			if (!flux_indices.empty() && (
-				after.flux_indices[0] - *flux_indices.rbegin() < 0 ||
+				after.flux_indices[0] < *flux_indices.rbegin() ||
 				after.flux_indices[0] - *flux_indices.rbegin() > 1)) {
 
 				throw std::logic_error("Can't append nonconsecutive data!");
