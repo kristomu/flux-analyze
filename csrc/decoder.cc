@@ -23,9 +23,6 @@ class decoded_tracks {
 
 class decoder {
 	private:
-		//std::map<slice_id_t, address_mark> address_marks;
-		std::vector<address_mark> address_marks;
-
 		address_mark deserialize(
 			std::vector<unsigned char> & raw_bytes,
 			size_t byte_stream_start, bool has_last_IDAM,
@@ -94,6 +91,10 @@ address_mark decoder::deserialize(
 				datalen = last_IDAM.idam.datalen;
 				std::cout << "Matching IDAM found" << std::endl;
 			} else {
+				// TODO: If this fails, set the timeslice to
+				// TS_UNKNOWN instead of TS_TRUNCATED or
+				// TS_DECODED_BAD, as there could be some other
+				// data length that would work.
 				std::cout << "Guessing" << std::endl;
 				datalen = 512; // seems to be standard for floppies.
 			}
@@ -126,6 +127,8 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	address_mark last_IDAM;
 
 	std::vector<std::pair<address_mark, address_mark> > full_sectors_found;
+	std::map<slice_id_t, address_mark> address_marks;
+
 	size_t last_start = 0, start = 0, i = 0;
 	size_t unknowns = 0;
 
@@ -167,6 +170,10 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 				break;
 			case MAYBE: ts_pos->status = TS_DECODED_UNKNOWN; break;
 		}
+
+		// Associate the address mark with the current
+		// timeslice's ID.
+		address_marks[ts_pos->ID] = admark;
 
 		if (admark.mark_type != A_UNKNOWN) {
 			std::cout << "Debug: Byte length: " << admark.byte_length() << std::endl;
@@ -261,7 +268,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 
 		// Don't insert IDAMs with bad CRC; their sector metadata could be
 		// scrambled and refer to something that doesn't exist.
-		if (idam.CRC_OK) {
+		if (idam.is_OK() != YES) {
 			all_sectors.insert(idam);
 		}
 	}
@@ -333,8 +340,14 @@ void decoder::dump_sector_files(const timeline & line_to_dump,
 			ts.sec_data.decoded_data.size());
 		error_out.write((char *)ts.sec_data.errors.data(),
 			ts.sec_data.errors.size());
+
+		// Implicit buffered copy: this is faster than dumping one
+		// int at a time to an ostream.
+		std::vector<char> flux_data_bytes;
 		std::copy(ts.flux_data.begin(), ts.flux_data.end(),
-			std::ostream_iterator<char>(flux_out));
+			std::back_inserter(flux_data_bytes));
+		flux_out.write(flux_data_bytes.data(),
+			flux_data_bytes.size());
 
 		for (char bit: ts.mfm_train.data) {
 			if (bit == 0) {
@@ -418,8 +431,6 @@ void decoder::dump_image(const decoded_tracks & d_tracks,
 	std::ofstream image_file(file_prefix + ".img"),
 		mask_file(file_prefix + ".mask");
 
-	std::copy(image.begin(), image.end(),
-		std::ostream_iterator<char>(image_file));
-	std::copy(mask.begin(), mask.end(),
-		std::ostream_iterator<char>(mask_file));
+	image_file.write(image.data(), image.size());
+	mask_file.write(mask.data(), mask.size());
 }
