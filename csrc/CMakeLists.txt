@@ -9,7 +9,7 @@ set(CMAKE_C_COMPILER gcc)
 set(CMAKE_CXX_COMPILER g++)
 set(PROG_NAME "flux-analyze")
 
-set(CMAKE_CXX_FLAGS "-ggdb -Wall -Werror -O3")
+set(CMAKE_CXX_FLAGS "-ggdb -Wall -O3 -Werror -Wextra")
 
 find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)

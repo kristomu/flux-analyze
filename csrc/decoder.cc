@@ -268,7 +268,7 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 
 		// Don't insert IDAMs with bad CRC; their sector metadata could be
 		// scrambled and refer to something that doesn't exist.
-		if (idam.is_OK() != YES) {
+		if (idam.is_OK() != NO) {
 			all_sectors.insert(idam);
 		}
 	}
