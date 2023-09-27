@@ -100,7 +100,8 @@ double get_MFM_train_error(double clock, const std::vector<int> & fluxes) {
 // (not that I'm really complaining).
 
 MFM_train_data get_MFM_train_dewarp(double clock,
-		const std::vector<int> & fluxes, double & error_out) {
+		const std::vector<int> & fluxes, double alpha,
+		double & error_out) {
 
 	MFM_train_data train;
 	train.data.reserve(fluxes.size() * 8/3);
@@ -121,8 +122,7 @@ MFM_train_data get_MFM_train_dewarp(double clock,
 		double error_term = flux_delay - half_clocks * clock/2.0;
 		error_out += error_term * error_term;
 
-		double alpha = 0.03;
-                bias = bias * (1-alpha) + error_term * alpha;
+		bias = bias * (1-alpha) + error_term * alpha;
 
 		if (zeroes == 0) { continue; }
 

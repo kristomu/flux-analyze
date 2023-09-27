@@ -135,6 +135,112 @@ double find_approximate_period(const std::vector<int> & in_fluxes) {
 	return median(median_periods);
 }
 
+// Perform brute-force adaptive (PLL/dewarping) decoding of flux streams.
+// This returns the number of additional valid chunks detected.
+
+// Perform brute-force adaptive (PLL/dewarping) decoding of flux streams.
+// This returns the number of additional valid chunks detected.
+
+decoded_tracks decode_brute_dewarp(timeline & floppy_line,
+	double min_alpha, double max_alpha, double stepsize,
+	bool verbose) {
+
+	// Check for any faulty AMs and try to encode them with PLL mode
+	// enabled instead. TODO: Refine this into a proper strategy approach.
+	// will probably need to involve splitting decode() into something
+	// that individually handles timeslices and something that sticks
+	// them together, but then how will we keep the sector chunks
+	// synchronized with the timeline? Might need a redesign. XXX.
+
+	// ff_track18 shows that dewarping can sometimes make it worse
+	// (going from DECODED_BAD to UNKNOWN). We need to keep the old one
+	// in that case, which complicates matters considerably. We do that
+	// by storing timeslices in a map; if a DECODED_BAD timeslice turns
+	// into UNKNOWN, then we can just place the old data back afterwards.
+
+	std::map<size_t, timeslice> best_timeslice_by_begin;
+
+	decoder IBM_decoder;
+	decoded_tracks decoded;
+
+	size_t sectors = 0;
+
+	for (double alpha = min_alpha; alpha <= max_alpha; alpha += stepsize) {
+		std::cout << "Dewarping: alpha = " << alpha << std::endl;
+		bool did_recode = false;
+		for (timeslice & ts: floppy_line.timeslices) {
+			if (ts.status != TS_DECODED_BAD) { continue; }
+
+			// Store our backup.
+			best_timeslice_by_begin[ts.flux_data_begin] = ts;
+
+			double error;
+			if (verbose) {
+				std::cout << "Trying dewarp: indices: flux: " <<
+					ts.flux_data_begin << " - " << ts.flux_data_end()
+					<< ", sd: " << ts.sector_data_begin
+					<< " - " << ts.sector_data_end() << ", alpha = "
+					<< alpha;
+				}
+
+			// I'd really like get_mfm_train to automatically
+			// handle the translation between levels on demand...
+			// something more lazy perhaps.
+			ts.mfm_train = get_MFM_train_dewarp(ts.clock_value,
+					ts.flux_data, alpha, error);
+			ts.sec_data = decode_MFM_train(ts.mfm_train,
+				ts.preamble_offset, ts.mfm_train.data.size());
+
+			if (verbose) {
+				std::cout << " -- error: " << error << std::endl;
+			}
+
+			did_recode = true;
+			ts.status = TS_UNKNOWN;
+		}
+
+		if (!did_recode) {
+			continue;
+		}
+
+		// TODO: Don't be so chatty both times about what we've
+		// decoded. Probably needs a decoder redesign.
+
+		IBM_decoder.decode(floppy_line, decoded);
+
+		// Restore any bad decodes that got turned into unknowns.
+		// This is very iffy and needs a proper redesign; for that
+		// matter, the timeline concept as such does. XXX
+
+		for (timeslice & ts: floppy_line.timeslices) {
+			if (ts.status != TS_UNKNOWN) {
+				continue;
+			}
+
+			// Check if this timeslice exists in our backup
+			// records, in case the preamble got corrupted by
+			// an earlier decode.
+			if (best_timeslice_by_begin.find(ts.flux_data_begin) !=
+				best_timeslice_by_begin.end()) {
+
+				// this must necessarily have status TS_DECODED_BAD;
+				// otherwise it wouldn't have been added to the backup
+				// record. So restore it.
+
+				ts = best_timeslice_by_begin.find(
+					ts.flux_data_begin)->second;
+			}
+		}
+		sectors = decoded.last_decoded_sector;
+		std::cout << sectors << "\n";
+	}
+
+	// Do a final decode so we've got something to return.
+	IBM_decoder.decode(floppy_line, decoded);
+
+	return decoded;
+}
+
 int main(int argc, char ** argv) {
 
 	test_rabin_karp();
@@ -286,42 +392,19 @@ int main(int argc, char ** argv) {
 
 		IBM_decoder.decode(floppy_line, decoded);
 
-		// Check for any faulty AMs and try to encode them with PLL mode
-		// enabled instead. TODO: Refine this into a proper strategy approach.
-		// will probably need to involve splitting decode() into something
-		// that individually handles timeslices and something that sticks
-		// them together, but then how will we keep the sector chunks
-		// synchronized with the timeline? XXX.
-		// ff_track18 shows that dewarping can sometimes make it worse
-		// (going from DECODED_BAD to UNKNOWN). We need to keep the old one
-		// in that case.
-		bool did_recode = false;
-		for (timeslice & ts: floppy_line.timeslices) {
-			if (ts.status != TS_DECODED_BAD) { continue; }
+		// Do a brute force attempt to decode bad chunks that we haven't
+		// got yet. This is very slow and could be sped up considerably with
+		// some redesign, but the point is that we get a surprising amount
+		// of corrupted chunks decoded "for free" this way.
 
-			double error;
-			std::cout << "Trying dewarp: indices: flux: " <<
-				ts.flux_data_begin << " - " << ts.flux_data_end()
-				<< ", sd: " << ts.sector_data_begin
-				<< " - " << ts.sector_data_end();
-
-			// I'd really like get_mfm_train to automatically
-			// handle the translation between levels on demand...
-			// something more lazy perhaps.
-			ts.mfm_train = get_MFM_train_dewarp(ts.clock_value,
-					ts.flux_data, error);
-			ts.sec_data = decode_MFM_train(ts.mfm_train,
-				ts.preamble_offset, ts.mfm_train.data.size());
-			std::cout << " -- error: " << error << std::endl;
-			did_recode = true;
-			ts.status = TS_UNKNOWN;
-		}
-
-		if (did_recode) {
-			// TODO: Don't be so chatty both times about what we've
-			// decoded. Probably needs a decoder redesign.
-			IBM_decoder.decode(floppy_line, decoded);
-		}
+		// Usually high alpha (less smoothing) is more promising, therefore
+		// we only do a cursory check of the lower alpha parameters.
+		// Known bug: checking alphas in reverse (from high to low) doesn't work.
+		// I have no idea why.
+		double stepsize = 0.005;
+		decoded = decode_brute_dewarp(floppy_line, stepsize, 0.5, 0.1, false);
+		decoded = decode_brute_dewarp(floppy_line, 0.5, 1-stepsize,
+			stepsize, false);
 
 		IBM_decoder.dump_sector_files(floppy_line,
 			"check_sectors/t" + itos(f.track) + "h" + itos(f.side));
