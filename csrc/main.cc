@@ -136,10 +136,7 @@ double find_approximate_period(const std::vector<int> & in_fluxes) {
 }
 
 // Perform brute-force adaptive (PLL/dewarping) decoding of flux streams.
-// This returns the number of additional valid chunks detected.
-
-// Perform brute-force adaptive (PLL/dewarping) decoding of flux streams.
-// This returns the number of additional valid chunks detected.
+// This returns the decoded tracks structure for the timeline.
 
 decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	double min_alpha, double max_alpha, double stepsize,
@@ -282,6 +279,9 @@ int main(int argc, char ** argv) {
 		return -1;
 	}
 
+	// TODO: Handle multiple tracks, perhaps by implementing a plus
+	// operator for decoded_tracks.
+
 	for (const flux_record & f: flux_records) {
 
 		std::vector<int> fluxes = f.fluxes;
@@ -316,7 +316,7 @@ int main(int argc, char ** argv) {
 		// record we're constructing it from.
 		timeslice first;
 
-		if (matches[0].match_location > 0) {
+		if (matches.size() > 0 && matches[0].match_location > 0) {
 			first.flux_data = std::vector<int>(f.fluxes.begin(),
 				f.fluxes.begin() + matches[0].match_location);
 			floppy_line.insert(first);
