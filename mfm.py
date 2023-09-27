@@ -759,7 +759,7 @@ def reconstruct_idams(pulse_deltas, already_decoded_chunks, track, head,
 
 			end_pos_location = np.searchsorted(end_positions, i[1])
 
-			if end_positions[end_pos_location] == i[1]:
+			if len(end_positions) > end_pos_location and end_positions[end_pos_location] == i[1]:
 				if ("CRC_OK" in augmented_decoded_partial[end_pos_location]) and augmented_decoded_partial[end_pos_location]["CRC_OK"]:
 					continue
 				augmented_decoded_partial[end_pos_location] = corrupted_idam
