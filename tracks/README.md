@@ -11,3 +11,4 @@ zero band which pulls ordinary k-median clustering towards itself, and so it fal
 
 - RETRY-77-4-t73.0: A quite damaged track that non-kmedian FluxEngine gets a few sectors out of, but kmedian simply gives up. It lacks the third band altogether.
 
+- multitrack/low_level_format_with_noise.flux: The whole disk of low_level_format_with_noise. This can be used to reproduce a false positive in C++ flux-analyze in combination with brute-force dewarping: a sector is mistakenly identified as valid because the corruption of data and CRC just happen to match. This does not happen with the alternate "historical" dewarping strategy.
