@@ -1,0 +1,62 @@
+A pseudocode description of the phased-locked loop from fd_controller.vhd
+
+Let
+	old_delay = delay,
+
+	one_imp_low = old_delay * 3/4
+	one_imp_nom = old_delay			// Half clock * 2
+	one_imp_high = old_delay * 5/4		// Midpoint between old_delay and * 3/2
+
+	two_imp_low = old_delay * 5/4
+	two_imp_nom = old_delay * 3/2		// Half clock * 3
+	two_imp_high = old_delay * 7/4		// Midpoint between * 3/2 and * 2
+
+	three_imp_low = old_delay * 7/4
+	three_imp_nom = old_delay * 2		// Half clock * 4
+	three_imp_high = old_delay * 9/4	// Implies the midpoint of the next is 2.5 :P
+
+Then
+	length = current flux reversal timing
+
+	If length < delay/4, then ignore
+
+	If length < one_imp_high, then it's MFM type 2 (10),
+		and
+			new_delay = old_delay/2 - length / 2
+				// Basically: we act as if length happens to be clocked exactly,
+				// but do an alpha = 0.5 exponential smoothing update on that
+				// hypothesis.
+
+	Else if length < two_imp_high, then it's MFM type 3 (100),
+		and
+			new_delay = old_delay/2 + length * 11/32
+				// Suppose length is exactly (the new) two_imp_nom, then the new
+				// delay would be length * 2/3, and the alpha = 0.5 update
+				// of this would be length * 2/6. 11/32 is ever so slightly
+				// off, I don't know why they chose that constant instead.
+				// It might be an approximation chosen by division by three
+				// being too expensive on simple hardware, since 11/32 is the
+				// 32nd fraction closest to 1/3.
+
+	Else if length < 3 * delay, then it's MFM type 4 (1000) // ???? Why not three_imp_high?
+		and
+			new_delay = old_delay / 2 + length / 4
+				// Suppose length is exactly three_imp_nom, then the new delay
+				// would be length / 2, and the alpha = 0.5 update of this
+				// would be length / 4, and that's what we get.
+	Else
+		Too long, just skip
+
+Then we have a thresholded increment based on new delay to deal with outliers:
+	If new_delay > 9/8 * old_delay:
+		delay = 9/8 * old_delay
+	Else if new_delay < 7/8 * old_delay:
+		delay = 7/8 * old_delay
+	Else
+		delay = new_delay.
+
+	Essentially this forces the growth rate to be no more than 1/8 in either
+	direction.
+
+I was concerned that my exponential averaging filters make no sense, but this
+doesn't either.

@@ -99,9 +99,17 @@ double get_MFM_train_error(double clock, const std::vector<int> & fluxes) {
 // The exponential smoothing has no right being this powerful, either
 // (not that I'm really complaining).
 
+// If different friction or warping of the surface were to bias the
+// clock, we'd expect the bias to be proportional to the length between
+// clock transitions as a longer delay would mean more time to accumulate.
+// The dewarp function below instead assumes that the bias is independent
+// of length, and bizarrely, that seems to work *better*, at least for
+// certain chunks that are otherwise very tough to decode. I don't get it,
+// but I can't dispute the results.
+
 MFM_train_data get_MFM_train_dewarp(double clock,
 		const std::vector<int> & fluxes, double alpha,
-		double & error_out) {
+		double & RMSE_out) {
 
 	MFM_train_data train;
 	train.data.reserve(fluxes.size() * 8/3);
@@ -110,19 +118,24 @@ MFM_train_data get_MFM_train_dewarp(double clock,
 	train.data.push_back(1);
 	train.flux_indices.push_back(0);
 
-	error_out = 0;
+	RMSE_out = 0;
 	double bias = 0;
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
-		int flux_delay = fluxes[i] - bias;
-		int half_clocks = round((flux_delay*2)/clock);
+		int corrected_flux_delay = fluxes[i] - bias;
+		int half_clocks = round((corrected_flux_delay*2)/clock);
 
-		int zeroes = std::max(0, half_clocks-1);
+		// The error term is the difference between the
+		// observed (corrected) flux delay and what we would
+		// have seen if the delay had been an exact multiple of
+		// the initial clock rate.
 
-		double error_term = flux_delay - half_clocks * clock/2.0;
-		error_out += error_term * error_term;
+		double error_term = corrected_flux_delay - half_clocks * clock/2.0;
+		RMSE_out += error_term * error_term;
 
 		bias = bias * (1-alpha) + error_term * alpha;
+
+		int zeroes = std::max(0, half_clocks-1);
 
 		if (zeroes == 0) { continue; }
 
@@ -134,7 +147,66 @@ MFM_train_data get_MFM_train_dewarp(double clock,
 		train.flux_indices.push_back(i);
 	}
 
-	error_out = std::sqrt(error_out / fluxes.size());
+	RMSE_out = std::sqrt(RMSE_out / fluxes.size());
+
+	return train;
+}
+
+// Trying a reasonably faithful reproduction of the VHDL PLL code.
+// The only differences are: the center for three half-clocks is at 3x
+// a half clock, not 32/11 x; and we treat very long delays
+// proportionately, i.e. 1000001 is strictly speaking possible.
+
+MFM_train_data get_MFM_train_dewarp_historical(double clock,
+		const std::vector<int> & fluxes, double alpha,
+		double & RMSE_out) {
+
+	MFM_train_data train;
+	train.data.reserve(fluxes.size() * 8/3);
+	train.flux_indices.reserve(fluxes.size() * 8/3);
+
+	train.data.push_back(1);
+	train.flux_indices.push_back(0);
+
+	RMSE_out = 0;
+	double estimated_half_clock = clock / 2;
+
+	for (size_t i = 0; i < fluxes.size(); ++i) {
+		int half_clocks = round(fluxes[i]/estimated_half_clock);
+
+		double error_term = fluxes[i] - half_clocks * estimated_half_clock;
+		RMSE_out += error_term * error_term;
+
+		if (half_clocks == 0) { continue; }
+
+		// The VHDL code has alpha = 0.5, but we'll let it be
+		// a parameter.
+		double proposed = estimated_half_clock * (1-alpha) + 
+			fluxes[i]/(double)half_clocks * alpha;
+
+		// Outlier thresholding: if the deviation is too far, ignore.
+		if (proposed > 2.25 * estimated_half_clock) {
+			proposed = 2.25 * estimated_half_clock;
+		}
+		if (proposed < 0.75 * estimated_half_clock) {
+			proposed = 0.75 * estimated_half_clock;	
+		}
+
+		estimated_half_clock = proposed;
+
+		int zeroes = std::max(0, half_clocks-1);
+
+		if (zeroes == 0) { continue; }
+
+		for (int j = 0; j < zeroes; ++j) {
+			train.data.push_back(0);
+			train.flux_indices.push_back(i);
+		}
+		train.data.push_back(1);
+		train.flux_indices.push_back(i);
+	}
+
+	RMSE_out = std::sqrt(RMSE_out / fluxes.size());
 
 	return train;
 }
