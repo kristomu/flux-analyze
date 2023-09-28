@@ -19,6 +19,18 @@ class decoded_tracks {
 		int last_decoded_sector = 0;
 
 		std::map<IDAM, DAM> sector_data;
+
+		// Add sectors from another track to this one.
+		decoded_tracks& operator+= (const decoded_tracks & rhs) {
+			last_track = std::max(last_track, rhs.last_track);
+			last_decoded_sector = std::max(last_decoded_sector,
+				rhs.last_decoded_sector);
+
+			sector_data.insert(rhs.sector_data.begin(),
+				rhs.sector_data.end());
+
+			return *this;
+		}
 };
 
 class decoder {

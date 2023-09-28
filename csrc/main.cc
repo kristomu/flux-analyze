@@ -271,7 +271,7 @@ int main(int argc, char ** argv) {
 	preamble_search.add(preamble_info.C2_sequence,
 		PREAMBLE_ID_C2);
 
-	decoded_tracks decoded;
+	decoded_tracks all_decoded_tracks;
 	size_t last_track = 0;
 
 	if (flux_records.empty()) {
@@ -284,6 +284,7 @@ int main(int argc, char ** argv) {
 
 	for (const flux_record & f: flux_records) {
 
+		decoded_tracks decoded;
 		std::vector<int> fluxes = f.fluxes;
 		decoder IBM_decoder;
 
@@ -408,11 +409,13 @@ int main(int argc, char ** argv) {
 
 		IBM_decoder.dump_sector_files(floppy_line,
 			"check_sectors/t" + itos(f.track) + "h" + itos(f.side));
+
+		all_decoded_tracks += decoded;
 	}
 
 	// Very quick and dirty hard-coded values, fix later. TODO
 	decoder IBM_decoder_final;
-	IBM_decoder_final.dump_image(decoded, "output",
+	IBM_decoder_final.dump_image(all_decoded_tracks, "output",
 		std::max((size_t)80, last_track+1), 2, 18, 512);
 
 	return 0;
