@@ -166,7 +166,29 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 		std::cout << "Dewarping: alpha = " << alpha << std::endl;
 		bool did_recode = false;
 		for (timeslice & ts: floppy_line.timeslices) {
-			if (ts.status != TS_DECODED_BAD) { continue; }
+			// This condition bears a bit of explaining: We want to retry
+			// every timeslice that is either DECODED_BAD, DECODED_UNKNOWN or
+			// UNKNOWN. The former corresponds to an MFM error, while the latter
+			// correspond to the data not being recognized (e.g. a wrong clock
+			// distorting the initial A1A1A1...).
+
+			// But the decoding process also splits off padding into their own
+			// chunks, because it narrows a timeslice to only the data that
+			// belongs to the address mark it finds. Therefore there will exist
+			// some UNKNOWN chunks that don't correspond to address marks.
+
+			// Because the original ordinal search hasn't assigned any clock
+			// value for theses, the clock value will be -1, so these should
+			// also be skipped. In theory, using a dewarper will let us recover
+			// the clock, but if we do that, then the decoder will complain
+			// with an exception because the chunk doesn't contain any A1A1A1
+			// or C2C2C2 preamble. So we do it like this instead, even though
+			// it's really opaque.
+			if (ts.clock_value < 0 ||
+				(ts.status != TS_DECODED_BAD && ts.status != TS_DECODED_UNKNOWN &&
+					ts.status != TS_UNKNOWN)) {
+				continue;
+			}
 
 			// Store our backup.
 			best_timeslice_by_begin[ts.flux_data_begin] = ts;
@@ -183,7 +205,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 			// I'd really like get_mfm_train to automatically
 			// handle the translation between levels on demand...
 			// something more lazy perhaps.
-			ts.mfm_train = get_MFM_train_dewarp(ts.clock_value,
+			ts.mfm_train = get_MFM_train_dewarp_historical(ts.clock_value,
 					ts.flux_data, alpha, error);
 			ts.sec_data = decode_MFM_train(ts.mfm_train,
 				ts.preamble_offset, ts.mfm_train.data.size());
@@ -219,6 +241,18 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 			// an earlier decode.
 			if (best_timeslice_by_begin.find(ts.flux_data_begin) !=
 				best_timeslice_by_begin.end()) {
+
+				// First check that the chunk didn't get smaller due to
+				// decoding, i.e. that the end has been split off but the
+				// beginning is not yet recognized. If decoding did split
+				// off some data, restoring the full chunk would be a bug.
+
+				timeslice * tsp = &best_timeslice_by_begin.find(
+					ts.flux_data_begin)->second;
+
+				if (tsp->flux_data_end() != ts.flux_data_end()) {
+					continue;
+				}
 
 				// this must necessarily have status TS_DECODED_BAD;
 				// otherwise it wouldn't have been added to the backup

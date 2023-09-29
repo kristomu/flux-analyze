@@ -153,9 +153,8 @@ MFM_train_data get_MFM_train_dewarp(double clock,
 }
 
 // Trying a reasonably faithful reproduction of the VHDL PLL code.
-// The only differences are: the center for three half-clocks is at 3x
-// a half clock, not 32/11 x; and we treat very long delays
-// proportionately, i.e. 1000001 is strictly speaking possible.
+// The only difference is: the center for three half-clocks is at 3x
+// a half clock, not 32/11 x.
 
 MFM_train_data get_MFM_train_dewarp_historical(double clock,
 		const std::vector<int> & fluxes, double alpha,
@@ -177,7 +176,7 @@ MFM_train_data get_MFM_train_dewarp_historical(double clock,
 		double error_term = fluxes[i] - half_clocks * estimated_half_clock;
 		RMSE_out += error_term * error_term;
 
-		if (half_clocks == 0) { continue; }
+		if (half_clocks == 0 || half_clocks > 4) { continue; }
 
 		// The VHDL code has alpha = 0.5, but we'll let it be
 		// a parameter.
