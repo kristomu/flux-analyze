@@ -238,21 +238,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	return decoded;
 }
 
-int main(int argc, char ** argv) {
-
-	test_rabin_karp();
-
-	std::string flux_filename;
-
-	if (argc < 2) {
-		flux_filename = "../tracks/MS_Plus_disk3_warped_track.flux";
-
-		std::cout << "Flux file to analyze was not specified.\n";
-		std::cout << "Choosing " << flux_filename << " as default.\n";
-	} else {
-		flux_filename = argv[1];
-		std::cout << "Analyzing flux file " << flux_filename << "\n";
-	}
+decoded_tracks decode_floppy(std::string flux_filename) {
 
 	std::vector<flux_record> flux_records = 
 		get_flux_record(flux_filename, true);
@@ -276,7 +262,7 @@ int main(int argc, char ** argv) {
 
 	if (flux_records.empty()) {
 		std::cout << "Error: flux database contains no data!" << std::endl;
-		return -1;
+		return all_decoded_tracks;
 	}
 
 	// TODO: Handle multiple tracks, perhaps by implementing a plus
@@ -413,10 +399,32 @@ int main(int argc, char ** argv) {
 		all_decoded_tracks += decoded;
 	}
 
+	return all_decoded_tracks;
+}
+
+int main(int argc, char ** argv) {
+	test_rabin_karp();
+
+	decoded_tracks all_decoded_images;
+
+	if (argc < 2) {
+		std::cout << "Usage: " << argv[0] << " <flux image> ... <flux image>\n";
+		std::cout << "Specifying multiple images will decode each as a different\n";
+		std::cout << "image of the same floppy; any sector that's valid in at\n";
+		std::cout << "least one of them will be preserved in the output.\n";
+		return -1;
+	} else {
+		for (int i = 1; i < argc; ++i) {
+			std::string flux_filename = argv[1];
+			std::cout << "Analyzing flux file " << flux_filename << "\n";
+			all_decoded_images += decode_floppy(flux_filename);
+		}
+	}
+
 	// Very quick and dirty hard-coded values, fix later. TODO
 	decoder IBM_decoder_final;
-	IBM_decoder_final.dump_image(all_decoded_tracks, "output",
-		std::max((size_t)80, last_track+1), 2, 18, 512);
+	IBM_decoder_final.dump_image(all_decoded_images, "output",
+		std::max(80, all_decoded_images.last_track+1), 2, 18, 512);
 
 	return 0;
 }
