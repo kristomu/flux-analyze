@@ -38,13 +38,14 @@ class decoder {
 		address_mark deserialize(
 			std::vector<unsigned char> & raw_bytes,
 			size_t byte_stream_start, bool has_last_IDAM,
-			const address_mark last_IDAM) const;
+			const address_mark last_IDAM,
+			bool verbose) const;
 
 	public:
 		// Adds OK sectors to the given decoded_tracks
 		// structure.
 		void decode(timeline & line_to_decode,
-			decoded_tracks & decoded);
+			decoded_tracks & decoded, bool verbose);
 
 		// For debugging.
 		void dump_all_to_file(
@@ -75,7 +76,8 @@ class decoder {
 
 address_mark decoder::deserialize(
 	std::vector<unsigned char> & raw_bytes, size_t byte_stream_start,
-	bool has_last_IDAM, const address_mark last_IDAM) const {
+	bool has_last_IDAM, const address_mark last_IDAM,
+	bool verbose) const {
 
 	address_mark admark;
 	admark.set_address_mark_type(raw_bytes);
@@ -101,13 +103,17 @@ address_mark decoder::deserialize(
 					DAM::minimum_length()) {
 
 				datalen = last_IDAM.idam.datalen;
-				std::cout << "Matching IDAM found" << std::endl;
+				if (verbose) {
+					std::cout << "Matching IDAM found" << std::endl;
+				}
 			} else {
 				// TODO: If this fails, set the timeslice to
 				// TS_UNKNOWN instead of TS_TRUNCATED or
 				// TS_DECODED_BAD, as there could be some other
 				// data length that would work.
-				std::cout << "Guessing" << std::endl;
+				if (verbose) {
+					std::cout << "Guessing" << std::endl;
+				}
 				datalen = 512; // seems to be standard for floppies.
 			}
 			admark.dam.set(raw_bytes, datalen);
@@ -130,7 +136,8 @@ address_mark decoder::deserialize(
 // a total error count so that we can determine how many errors there are
 // in a given chunk decoding. TODO?
 
-void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
+void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded,
+	bool verbose) {
 	int failures = 0;
 
 	// Used for linking DAMs to IDAMs to determine what
@@ -147,14 +154,16 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 	for (auto ts_pos = line_to_decode.timeslices.begin();
 		ts_pos != line_to_decode.timeslices.end(); ++ts_pos) {
 
-		std::cout << std::endl;
+		if (verbose) {
+			std::cout << std::endl;
+		}
 		address_mark admark;
 		start = ts_pos->sector_data_begin;
 
 		try {
 			admark = deserialize(ts_pos->sec_data.decoded_data,
 				ts_pos->sector_data_begin, has_last_IDAM,
-				last_IDAM);
+				last_IDAM, verbose);
 		} catch (std::out_of_range & e) {
 			// Truncated
 			ts_pos->status = TS_TRUNCATED;
@@ -188,21 +197,27 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 		address_marks[ts_pos->ID] = admark;
 
 		if (admark.mark_type != A_UNKNOWN) {
-			std::cout << "Debug: Byte length: " << admark.byte_length() << std::endl;
+			if (verbose) {
+				std::cout << "Debug: Byte length: " << admark.byte_length() << std::endl;
+			}
 			size_t admark_MFM_start = ts_pos->sec_data.MFM_train_indices[0];
 
 			if (admark.byte_length() == ts_pos->sec_data.MFM_train_indices.size()) {
-				std::cout << "Debug: MFM train indices: " << admark_MFM_start
-					<< " and out." << std::endl;
+				if (verbose) {
+					std::cout << "Debug: MFM train indices: " << admark_MFM_start
+						<< " and out." << std::endl;
+					}
 			} else {
 				size_t admark_MFM_end = ts_pos->sec_data.MFM_train_indices[admark.byte_length()];
-				std::cout << "Debug: MFM train indices: " << admark_MFM_start
-					<< " to " << admark_MFM_end << std::endl;
 				size_t admark_flux_start = ts_pos->mfm_train.flux_indices[admark_MFM_start],
 					admark_flux_end = ts_pos->mfm_train.flux_indices[admark_MFM_end];
-				std::cout << "Debug: flux stream indices: " << admark_flux_start
-					<< " to " << admark_flux_end << " out of "
-					<< ts_pos->flux_data.size() << std::endl;
+				if (verbose) {
+					std::cout << "Debug: MFM train indices: " << admark_MFM_start
+						<< " to " << admark_MFM_end << std::endl;
+					std::cout << "Debug: flux stream indices: " << admark_flux_start
+						<< " to " << admark_flux_end << " out of "
+						<< ts_pos->flux_data.size() << std::endl;
+				}
 
 				// Partition off the part that we still don't know what is, but
 				// only if the current chunk was decoded properly, because otherwise
@@ -217,13 +232,15 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded) {
 			++unknowns;
 		}
 
-		std::cout << start;
-		if (i++ > 0) {
-			std::cout << " (+" << start - last_start << ") ";
+		if (verbose) {
+			std::cout << start;
+			if (i++ > 0) {
+				std::cout << " (+" << start - last_start << ") ";
+			}
+			std::cout << "\t";
+			admark.print_info();
+			std::cout << "\n";
 		}
-		std::cout << "\t";
-		admark.print_info();
-		std::cout << "\n";
 
 		last_start = start;
 	}

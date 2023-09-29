@@ -225,7 +225,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 		// TODO: Don't be so chatty both times about what we've
 		// decoded. Probably needs a decoder redesign.
 
-		IBM_decoder.decode(floppy_line, decoded);
+		IBM_decoder.decode(floppy_line, decoded, false);
 
 		// Restore any bad decodes that got turned into unknowns.
 		// This is very iffy and needs a proper redesign; for that
@@ -267,7 +267,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	}
 
 	// Do a final decode so we've got something to return.
-	IBM_decoder.decode(floppy_line, decoded);
+	IBM_decoder.decode(floppy_line, decoded, true);
 
 	return decoded;
 }
@@ -411,7 +411,7 @@ decoded_tracks decode_floppy(std::string flux_filename) {
 			}
 		}
 
-		IBM_decoder.decode(floppy_line, decoded);
+		IBM_decoder.decode(floppy_line, decoded, true);
 
 		// Do a brute force attempt to decode bad chunks that we haven't
 		// got yet. This is very slow and could be sped up considerably with
