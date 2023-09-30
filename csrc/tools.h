@@ -26,7 +26,3 @@ unsigned int msb_to_int(const std::vector<unsigned char> & data,
 
 unsigned int msb_to_int(const std::vector<unsigned char> & data,
 	size_t idx, int num_bytes);
-
-// Calculate a CCITT-CRC16 on the given region.
-unsigned short crc16(std::vector<unsigned char>::const_iterator start,
-	std::vector<unsigned char>::const_iterator end);

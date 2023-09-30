@@ -23,6 +23,8 @@
 #include "timeline.h"
 #include "decoder.cc"
 
+#include "crc16.h"
+
 // PROCESSING
 
 /* And then the plan is something like:
@@ -438,6 +440,7 @@ decoded_tracks decode_floppy(std::string flux_filename) {
 
 int main(int argc, char ** argv) {
 	test_rabin_karp();
+	test_crc16();
 
 	decoded_tracks all_decoded_images;
 
