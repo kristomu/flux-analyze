@@ -186,14 +186,27 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 			// with an exception because the chunk doesn't contain any A1A1A1
 			// or C2C2C2 preamble. So we do it like this instead, even though
 			// it's really opaque.
+
+			// In here there's a hint of a "solution hierarchy". For instance,
+			// a known address mark with a bad CRC is better than a complete
+			// unknown, and prsumably ??? a DAM is better than a DDAM.
+			// XXX: keep a note of that, though what to do with DDAM vs DAM is
+			// still tricky. E.g. https://retrocomputing.stackexchange.com/a/27322
 			if (ts.clock_value < 0 ||
 				(ts.status != TS_DECODED_BAD && ts.status != TS_DECODED_UNKNOWN &&
 					ts.status != TS_UNKNOWN)) {
 				continue;
 			}
 
-			// Store our backup.
-			best_timeslice_by_begin[ts.flux_data_begin] = ts;
+			// Store our backup, but don't overwrite a better record (see above).
+			// This should hopefully keep everything from degrading to TS_UNKNOWN
+			// ("Address mark failures" decreasing while "Unknown AMs" increases
+			// correspondingly.)
+			if (best_timeslice_by_begin.find(ts.flux_data_begin) ==
+				best_timeslice_by_begin.end() ||
+				best_timeslice_by_begin.find(ts.flux_data_begin)->second.status == TS_UNKNOWN) {
+				best_timeslice_by_begin[ts.flux_data_begin] = ts;
+			}
 
 			double error;
 			if (verbose) {

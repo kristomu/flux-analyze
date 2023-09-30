@@ -378,13 +378,20 @@ void decoder::dump_sector_files(const timeline & line_to_dump,
 		flux_out.write(flux_data_bytes.data(),
 			flux_data_bytes.size());
 
+		// Ditto.
+		std::vector<char> mfm_data_bytes;
+		mfm_data_bytes.reserve(ts.mfm_train.data.size());
+
 		for (char bit: ts.mfm_train.data) {
 			if (bit == 0) {
-				mfm_out << "0";
+				mfm_data_bytes.push_back('0');
 			} else {
-				mfm_out << "1";
+				mfm_data_bytes.push_back('1');
 			}
 		}
+
+		mfm_out.write(mfm_data_bytes.data(),
+			mfm_data_bytes.size());
 
 		++i;
 	}
