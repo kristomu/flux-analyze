@@ -208,7 +208,7 @@ std::vector<flux_record> get_flux_record_sqlite(std::string flux_filename,
 }
 
 std::vector<flux_record> get_flux_record_protobuf(
-	std::string flux_filename, bool) {
+	std::string flux_filename) {
 
 	// Verify that we have the right version of protobuf.
 	GOOGLE_PROTOBUF_VERIFY_VERSION;
@@ -223,14 +223,29 @@ std::vector<flux_record> get_flux_record_protobuf(
 		throw std::runtime_error("Could not open flux file " + flux_filename);
 	}
 
-	google::protobuf::io::IstreamInputStream pb_file_input(
-		&flux_file_fstream, -1);
-
-	if (!google::protobuf::TextFormat::Parse(&pb_file_input, &flux_file)) {
+	if (!flux_file.ParseFromIstream(&flux_file_fstream)) {
 		throw std::runtime_error("Could not parse flux file " + flux_filename + " as protobuf");
 	}
 
-	return std::vector<flux_record>();
+	std::vector<flux_record> flux_records;
+
+	for (int i = 0; i < flux_file.track_size(); i++) {
+		const TrackFluxProto * cur_track = &flux_file.track(i);
+
+		int track_num = cur_track->track(),
+			head_num = cur_track->head();
+
+		if (cur_track->flux_size() != 1) {
+			throw std::logic_error("Error: Don't know how to handle "
+				"multiple strings for a track (unknown .flux format)");
+		}
+
+		flux_record this_track(track_num, head_num,
+			CT_UNCOMPRESSED, cur_track->flux(0));
+		flux_records.push_back(this_track);
+	}
+
+	return flux_records;
 }
 
 std::vector<flux_record> get_flux_record(
@@ -242,7 +257,9 @@ std::vector<flux_record> get_flux_record(
 	try {
 		return get_flux_record_sqlite(flux_filename, verbose);
 	} catch (std::exception & e) {
+		std::cout << "Got an exception trying to open " << flux_filename
+			<< " as SQLite, trying protobuf" << std::endl;
 	}
 
-	return get_flux_record_protobuf(flux_filename, verbose);
+	return get_flux_record_protobuf(flux_filename);
 }
