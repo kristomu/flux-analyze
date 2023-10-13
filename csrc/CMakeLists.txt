@@ -9,10 +9,13 @@ set(CMAKE_C_COMPILER gcc)
 set(CMAKE_CXX_COMPILER g++)
 set(PROG_NAME "flux-analyze")
 
-set(CMAKE_CXX_FLAGS "-ggdb -Wall -O3 -Werror -Wextra")
+set(CMAKE_CXX_FLAGS "-ggdb -Wall -O3 -Werror -Wextra -march=native -mtune=native")
 
 find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
+find_package(Protobuf REQUIRED)
+
+add_subdirectory(protobuf)
 
 add_executable(${PROG_NAME}
 	address_marks.cc
@@ -34,5 +37,5 @@ add_executable(copy_flux
 # should've erred out above, so we won't get any errors here.
 
 include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} )
-target_link_libraries( ${PROG_NAME} ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+target_link_libraries( ${PROG_NAME} fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
 target_link_libraries( copy_flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )

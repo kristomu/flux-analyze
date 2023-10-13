@@ -1,12 +1,17 @@
 #include <vector>
 #include <string>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
 #include <zlib.h>
 #include <sqlite3.h>
 
+#include <google/protobuf/text_format.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+
 #include "flux_record.h"
+#include "protobuf/fl2.pb.h"
 
 // -- HELPER FUNCTIONS --
 
@@ -125,7 +130,7 @@ flux_record::flux_record(int track_in, int side_in,
 // vector of flux data. If verbose is set to true, output stats as
 // the data is read.
 
-std::vector<flux_record> get_flux_record(std::string flux_filename,
+std::vector<flux_record> get_flux_record_sqlite(std::string flux_filename,
 	bool verbose) {
 
 	sqlite3 * database;
@@ -200,4 +205,44 @@ std::vector<flux_record> get_flux_record(std::string flux_filename,
 	sqlite3_close(database);
 
 	return flux_records;
+}
+
+std::vector<flux_record> get_flux_record_protobuf(
+	std::string flux_filename, bool) {
+
+	// Verify that we have the right version of protobuf.
+	GOOGLE_PROTOBUF_VERIFY_VERSION;
+
+	// Our temporary destination; we'll read from this into a vector of
+	// flux records after populating it.
+	FluxFileProto flux_file;
+
+	std::ifstream flux_file_fstream(flux_filename);
+
+	if (!flux_file_fstream) {
+		throw std::runtime_error("Could not open flux file " + flux_filename);
+	}
+
+	google::protobuf::io::IstreamInputStream pb_file_input(
+		&flux_file_fstream, -1);
+
+	if (!google::protobuf::TextFormat::Parse(&pb_file_input, &flux_file)) {
+		throw std::runtime_error("Could not parse flux file " + flux_filename + " as protobuf");
+	}
+
+	return std::vector<flux_record>();
+}
+
+std::vector<flux_record> get_flux_record(
+		std::string flux_filename, bool verbose) {
+
+	// First try sqlite. If that doesn't work, try protobuf. This is a
+	// rather ugly way of doing it; fix later. TODO.
+
+	try {
+		return get_flux_record_sqlite(flux_filename, verbose);
+	} catch (std::exception & e) {
+	}
+
+	return get_flux_record_protobuf(flux_filename, verbose);
 }
