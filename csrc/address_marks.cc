@@ -93,6 +93,7 @@ void address_mark::set_address_mark_type(
 	const std::vector<unsigned char> & bytes) {
 
 	mark_type = A_UNKNOWN;
+	unknown_mark_type = -1;
 	if (bytes.size() < 4) {
 		return;
 	}
@@ -148,13 +149,25 @@ void address_mark::set_address_mark_type(
 		header_bytes == std::vector<u_char>({0xA1, 0xA1, 0xA1, 0xFF})) {
 		mark_type = A_IDAM;
 	}
+
+	if (mark_type == A_UNKNOWN) {
+		unknown_mark_type = (unsigned char)(header_bytes[3]);
+	}
 }
 
 // TODO: Refactor.
 
 void address_mark::print_info() const {
 	switch(mark_type) {
-		default: std::cout << "?? Unknown address mark."; break;
+		default:
+			std::cout << "?? Unknown address mark (";
+			if (unknown_mark_type == -1) {
+				std::cout << "too short)";
+			} else {
+				std::cout << "0x" << std::hex 
+					<< unknown_mark_type << std::dec << ")";
+			}
+			break;
 		case A_IAM: return iam.print_info();
 		case A_IDAM: return idam.print_info();
 		case A_DAM: return dam.print_info();

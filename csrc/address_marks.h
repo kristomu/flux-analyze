@@ -141,6 +141,13 @@ class IAM {
 class address_mark {
 	public:
 		address_mark_t mark_type;
+
+		// This variable is set if unknown; it's used to give more info
+		// about just what kind of unknown AM we're dealing with, which
+		// could be useful for tuning or debugging. It's -1 if we don't
+		// know or the mark type isn't unknown.
+		int unknown_mark_type;
+
 		// TODO: When we start doing caching, each of these should
 		// probably have a one-time cache indicator so that we can
 		// detect staleness if e.g. we add something to or remove
