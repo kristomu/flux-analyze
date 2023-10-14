@@ -235,14 +235,15 @@ std::vector<flux_record> get_flux_record_protobuf(
 		int track_num = cur_track->track(),
 			head_num = cur_track->head();
 
-		if (cur_track->flux_size() != 1) {
-			throw std::logic_error("Error: Don't know how to handle "
-				"multiple strings for a track (unknown .flux format)");
-		}
+		// The GWHAYWOOD fluxes have multiple track records for a single
+		// track. I don't fully know what that means, so I'm going to just
+		// make a flux record per.
 
-		flux_record this_track(track_num, head_num,
-			CT_UNCOMPRESSED, cur_track->flux(0));
-		flux_records.push_back(this_track);
+		for (int j = 0; j < cur_track->flux_size(); ++j) {
+			flux_record this_track(track_num, head_num,
+				CT_UNCOMPRESSED, cur_track->flux(j));
+			flux_records.push_back(this_track);
+		}
 	}
 
 	return flux_records;
