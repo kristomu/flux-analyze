@@ -185,6 +185,14 @@ template<typename T> bool vec_eq(const T & a, const T & b) {
 	return true;
 }
 
+// This is used to convert signed char to char on architectures
+// where char isn't signed, to avoid narrowing errors. It's a bit
+// of a hack, but should work... I'm not sure what the proper way
+// to do this is, short of explicitly declaring everything signed.
+std::vector<char> convert_char_vector(std::vector<signed char> in) {
+	return std::vector<char>(in.begin(), in.end());
+}
+
 // I should probably get a unit test framework for this...
 void test_rabin_karp() {
 	// Test not matching something.
@@ -229,8 +237,14 @@ void test_rabin_karp() {
 	}
 
 	// Test negative values.
-	std::vector<char> haystack_nv = {-1, -1, 0, 1, 1, -1, 0, -1},
-		needle_nv = {1, 1, -1, 0, -1};
+
+	// Use convert_char_vector to get around narrowing conversion errors
+	// on architectures like ARM where char is unsigned.
+
+	std::vector<char>
+		haystack_nv = convert_char_vector({-1, -1, 0, 1, 1, -1, 0, -1}),
+		needle_nv = convert_char_vector({1, 1, -1, 0, -1});
+
 	rk = rabin_karp(needle_nv, 0);
 
 	if (!vec_eq(rk.find_matching_indices(haystack_nv), {3})) {
