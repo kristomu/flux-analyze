@@ -74,7 +74,7 @@ void timeline::split(std::list<timeslice>::iterator & to_split,
 		to_split->mfm_train.flux_indices[MFM_end];
 
 	timeslice ts_before = *to_split, ts_after;
-	ts_before.flux_data = std::vector(to_split->flux_data.begin(),
+	ts_before.flux_data = std::vector<int>(to_split->flux_data.begin(),
 		to_split->flux_data.begin() + flux_end);
 	ts_after.flux_data = after_idx(to_split->flux_data, flux_end);
 

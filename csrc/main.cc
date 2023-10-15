@@ -1,6 +1,6 @@
 // Standalone FluxEngine IBM decoder with some tricks
 // from the Python version... hopefully faster and
-// more accurate. Perhaps multiple flux file support ???
+// more accurate.
 
 #include <algorithm>
 #include <iostream>

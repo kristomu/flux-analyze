@@ -1,6 +1,6 @@
 // From https://pastebin.com/w0S40FV3
 
-void pll(int delay) {
+void pll(int length, int delay) {
 	// Store pulse delay in a variable.
 	int old_delay = delay;
 
@@ -28,7 +28,7 @@ void pll(int delay) {
 	int three_impulse_high = 9 * old_delay / 4;
 
 	int length_snap = length;
-	int new_delay;
+	int new_delay = delay;
 
 	// But these intervals are *weird*!
 	// Everything below 1/2 half-clock is too small
@@ -77,17 +77,17 @@ void pll(int delay) {
 
 	if (length_snap < delay/4) {
 		// too small
-	} else if (length_snap < one_imp_high) {
+	} else if (length_snap < one_impulse_high) {
 		// 1 us between two pulses
 		new_delay = (old_delay + length_snap)/2; // ???
-	} else if (length_snap < two_imp_high) {
+	} else if (length_snap < two_impulse_high) {
 		// 1.5 us between two pulses
 		new_delay = (16 * old_delay + 11 * length_snap) / 32;
 	} else if (length_snap < 3 * delay) {
 		// 2 us between two pulses
 		new_delay = (2 * old_delay + length_snap) / 4;
 	} else {
-		// too long
+		// too long, so no change
 	}
 
 	// I like this robust approach: if the new clock estimate is high,

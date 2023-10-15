@@ -1,5 +1,9 @@
+#include <algorithm>
 #include <iostream>
+#include <limits>
 #include <vector>
+
+#include <math.h>
 
 double sqr(double x) {
 	return x*x;

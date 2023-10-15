@@ -41,7 +41,6 @@ int main(int argc, char ** argv) {
 	if (sqlite3_open_v2(source_flux_name.c_str(), &source_db,
 		SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
 		sqlite3_close(source_db);
-		sqlite3_close(dest_db);
 		throw std::runtime_error("Could not open flux file " +
 			source_flux_name);
 	}
