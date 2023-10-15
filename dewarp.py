@@ -75,6 +75,17 @@ def another_pll(pulses, x=None, alpha=0.05):
 
 	return assignments
 
+# Note to self, 2023: The "PLL" below is a bidirectional one: it starts with
+# an assumption that the clock is x and determines the mean residuals in
+# both directions. It then adjusts the clock reference of the pulse at the
+# center of the window by the mean residual, and assigns it (to a band).
+# It then slides the window one step to the right, removing the contribution
+# of the point that was removed and adding in the contribution of the point
+# that was just added. I think that's it.
+
+# Is this approach better than the exponential smoothing of the C++ version?
+# There's only one way to tell: by results.
+
 # Drop that alpha and use a much larger window instead?
 def shifted_window_pll(pulses, start_pos, end_pos, x=None, alpha=0.005):
 	if x is None:
