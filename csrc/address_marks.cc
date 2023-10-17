@@ -1,6 +1,7 @@
 
 #include "address_marks.h"
 #include "crc16.h"
+#include "fnv_hash.h"
 #include "tools.h"
 
 #include <iostream>
@@ -12,8 +13,9 @@ size_t IDAM::byte_length() { return 10; }
 void IDAM::set(std::vector<unsigned char> & raw_bytes) {
 
 	if (raw_bytes.size() < byte_length()) {
-		throw std::out_of_range("IDAM: trying to deserialize"
-			" from too short an input!");
+		throw std::out_of_range("IDAM: deserialize expected "
+			+ itos(byte_length()) + " bytes, got "
+			+ itos(raw_bytes.size()));
 	}
 
 	track = raw_bytes[4];
@@ -53,8 +55,9 @@ size_t DAM::minimum_length() {
 
 void DAM::set(std::vector<unsigned char> & raw_bytes, int datalen) {
 	if (raw_bytes.size() < byte_length(datalen)) {
-		throw std::out_of_range("DAM: trying to deserialize"
-			" from too short an input!");
+		throw std::out_of_range("DAM: deserialize expected "
+			+ itos(byte_length(datalen)) + " bytes, got "
+			+ itos(raw_bytes.size()));
 	}
 
 	deleted = (raw_bytes[3] == 0xF8);
@@ -73,10 +76,15 @@ void DAM::print_info() const {
 	}
 	
 	if (CRC_OK) {
-		std::cout << " OK"; 
+		std::cout << " [OK]\t";
 	} else {
-		std::cout << " bad";
+		std::cout << " [bad]\t";
 	}
+
+	uint32_t independent_hash = fnv32_hash(data);
+
+	std::cout << " hash: 0x" << std::hex <<
+		independent_hash << std::dec;
 }
 
 // ------------- Index Address Mark ------------

@@ -93,19 +93,17 @@ address_mark decoder::deserialize(
 
 		// Handle data AMs.
 		case A_DAM:
-		case A_DDAM:
+		case A_DDAM: {
 			// If we have a preceding IDAM and the gap between the
 			// IDAM starts and the DAM starts is too small to fit
 			// another DAM, then we assume the previous IDAM goes
 			// with this DAM.
-			if (has_last_IDAM &&
+			bool has_close_IDAM = has_last_IDAM &&
 				byte_stream_start - last_IDAM.byte_stream_index <
-					DAM::minimum_length()) {
+				DAM::minimum_length();
 
+			if (has_close_IDAM) {
 				datalen = last_IDAM.idam.datalen;
-				if (verbose) {
-					std::cout << "Matching IDAM found" << std::endl;
-				}
 			} else {
 				// TODO: If this fails, set the timeslice to
 				// TS_UNKNOWN instead of TS_TRUNCATED or
@@ -124,7 +122,17 @@ address_mark decoder::deserialize(
 				std::swap(admark.dam, admark.ddam);
 			}
 
-			break;
+			if (verbose && has_close_IDAM) {
+				std::cout << "Matching IDAM found - ";
+				last_IDAM.print_info();
+				std::cout << ", data CRC ";
+				if (admark.dam.CRC_OK) {
+					std::cout << "[OK]\n";
+				} else {
+					std::cout << "[bad]\n";
+				}
+			}
+			break;}
 		default: break;
 	}
 
@@ -166,6 +174,10 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded,
 				last_IDAM, verbose);
 		} catch (std::out_of_range & e) {
 			// Truncated
+			if (verbose) {
+				std::cout << "Got a truncated AM, error: " <<
+					e.what() << std::endl;
+			}
 			ts_pos->status = TS_TRUNCATED;
 			continue;
 		}

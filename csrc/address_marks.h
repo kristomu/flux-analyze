@@ -173,5 +173,6 @@ class address_mark {
 		address_mark() {
 			dam.deleted = false;
 			ddam.deleted = true;
+			mark_type = A_UNKNOWN;
 		}
 };
