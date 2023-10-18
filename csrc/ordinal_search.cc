@@ -315,8 +315,25 @@ std::vector<match_with_clock> get_flux_matches(
 			continue;
 		}
 
-		double clock =	get_clock(
-			preamble_info.get_preamble_by_ID(result.ID),
+		// Ugly HACK to deal with false positives.
+		// I do not recommend doing this... we instead need to
+		// explicitly introduce every preamble and then make
+		// the ordinal search only search up till the first repeated
+		// bit (where the strategy will no longer work). TODO as part
+		// of the design cleanup.
+		// Ultimately we also need to support overlapping sectors to be
+		// robust to false positives.
+		std::vector<char> amended_preamble =
+			preamble_info.get_preamble_by_ID(result.ID);
+		// The upper nibble following the preamble will always be high,
+		// but ordinal search can't handle that. Manually push four
+		// high MFM bits to deal with it.
+		for (int i = 0; i < 4; ++i) {
+			amended_preamble.push_back(0);
+			amended_preamble.push_back(1);
+		}
+
+		double clock =	get_clock(amended_preamble,
 			flux_transitions.begin() + result.idx - offset,
 			flux_transitions.end());
 
