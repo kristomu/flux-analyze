@@ -35,6 +35,12 @@ class decoded_tracks {
 
 class decoder {
 	private:
+		// Returns whether a given DAM has a sufficiently
+		// close IDAM that it can be matched with.
+		bool has_close_IDAM(bool has_last_IDAM,
+			const address_mark & candidate_DAM,
+			const address_mark & candidate_IDAM) const;
+
 		address_mark deserialize(
 			std::vector<unsigned char> & raw_bytes,
 			size_t byte_stream_start, bool has_last_IDAM,
@@ -74,6 +80,23 @@ class decoder {
 			int default_sector_size) const;
 };
 
+// The DAM has a close IDAM if there's no way for another DAM to
+// be sandwiched between them. Perhaps better would be "if there's
+// no way for another IDAM to be sandwiched between them"? But that
+// would be a very strange format.
+
+bool decoder::has_close_IDAM(bool has_last_IDAM,
+	const address_mark & candidate_DAM,
+	const address_mark & candidate_IDAM) const {
+
+	return has_last_IDAM
+		&& (candidate_DAM.mark_type == A_DAM || candidate_DAM.mark_type == A_DDAM)
+		&& candidate_IDAM.mark_type == A_IDAM
+		&& candidate_DAM.byte_stream_index -
+			candidate_IDAM.byte_stream_index <
+			DAM::minimum_length();
+}
+
 address_mark decoder::deserialize(
 	std::vector<unsigned char> & raw_bytes, size_t byte_stream_start,
 	bool has_last_IDAM, const address_mark last_IDAM,
@@ -93,16 +116,12 @@ address_mark decoder::deserialize(
 
 		// Handle data AMs.
 		case A_DAM:
-		case A_DDAM: {
+		case A_DDAM:
 			// If we have a preceding IDAM and the gap between the
 			// IDAM starts and the DAM starts is too small to fit
 			// another DAM, then we assume the previous IDAM goes
 			// with this DAM.
-			bool has_close_IDAM = has_last_IDAM &&
-				byte_stream_start - last_IDAM.byte_stream_index <
-				DAM::minimum_length();
-
-			if (has_close_IDAM) {
+			if (has_close_IDAM(has_last_IDAM, admark, last_IDAM)) {
 				datalen = last_IDAM.idam.datalen;
 			} else {
 				// TODO: If this fails, set the timeslice to
@@ -122,7 +141,7 @@ address_mark decoder::deserialize(
 				std::swap(admark.dam, admark.ddam);
 			}
 
-			if (verbose && has_close_IDAM) {
+			if (verbose && has_close_IDAM(has_last_IDAM, admark, last_IDAM)) {
 				std::cout << "Matching IDAM found - ";
 				last_IDAM.print_info();
 				std::cout << ", data CRC ";
@@ -132,7 +151,7 @@ address_mark decoder::deserialize(
 					std::cout << "[bad]\n";
 				}
 			}
-			break;}
+			break;
 		default: break;
 	}
 
@@ -187,9 +206,8 @@ void decoder::decode(timeline & line_to_decode, decoded_tracks & decoded,
 			has_last_IDAM = true;
 		}
 
-		// Only if a data mark.
-		if ((admark.mark_type == A_DAM || admark.mark_type == A_DDAM)
-			&& has_last_IDAM) {
+		// Only if a data mark with a matching IDAM.
+		if (has_close_IDAM(has_last_IDAM, admark, last_IDAM)) {
 			full_sectors_found.push_back(
 				std::pair<address_mark, address_mark>
 				(last_IDAM, admark));
