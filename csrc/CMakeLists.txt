@@ -31,6 +31,7 @@ add_executable(${PROG_NAME}
 	tools.cc)
 
 add_executable(dp_test
+	flux_record.cc
 	dp_test.cc)
 
 add_executable(copy_flux

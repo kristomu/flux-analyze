@@ -43,7 +43,7 @@
 		INDEX:	Current index into list of flux transitions (ith transition)
 		INDEX:	MFM decoding parity				*
 
-		STATE:	Current flux delay period
+		STATE:	Current flux delay period (number of zero bits)
 		STATE:	OOB sequence bit index			*
 		STATE:	accumulated penalty/cost
 		STATE:	previous optimal entry
@@ -78,32 +78,39 @@
 
 #include "flux_record.h"
 
-typedef enum mode_t {
+#include <iostream>
+#include <limits>
+#include <cmath>
+
+enum f_mode_t {
 	IN_BAND = 0,
 	PREAMBLE_A = 1,
 	PREAMBLE_C = 2,
 	ILLEGIBLE = 3,
 	NUM_MODES = 4};
 
+// perhaps some better class names?
 class dp_idx {
 	public:
-		mode_t mode;
-		int clock;
+		f_mode_t mode;
+		u_char clock;
 		int idx;
-		int parity;
+		u_char parity;
 };
 
 class dp_record {
 	public:
-		int cur_period;
-		int OOB_sequence_index;
-		double penalty;
+		short zero_bits = -1;
+		short OOB_sequence_index = -1;
+		double penalty = 0;
 		dp_idx previous_opt;
 };
 
 const int MIN_CLOCK = 1, MAX_CLOCK = 100;
 
-void do_dp(const & flux_record f) {
+double sqr(double x) { return x*x; }
+
+void do_dp(const flux_record & f, size_t len) {
 
 	// Noise sensitivity hyperparameter.
 	// Higher values of this allows greater changes in clock
@@ -111,7 +118,102 @@ void do_dp(const & flux_record f) {
 	// the set clock to the current pulse delay.
 	double alpha = 0.5;
 
-	std::vector<std::vector<std::vector<std::vector<dp_record> > > > dp;
+	// Cut down the fluxes length so we can experiment with smaller
+	// groups first.
+	std::vector<int> fluxes = f.fluxes;
+	std::cout << "Flux length: " << fluxes.size() << " max length specified: " << len << "\n";
+	if (fluxes.size() > len) {
+		fluxes.resize(len);
+	}
+
+	// We can probably cut down on the space complexity here by having
+	// only two time instances (old and new) and recording the whole
+	// trace... maybe do that later if necessary.
+	// Or by doing it in chunks, e.g. 1000 a pop; get the trace from the
+	// last 1000; then do the previous 1000 and stitch together from the
+	// trace we got... O(kn) time, k space instead of O(n) time and space,
+	// where k is the chunk length.
+	// We'll see.
+
+	std::vector<std::vector<std::vector<std::vector<dp_record> > > > dp(
+		NUM_MODES, std::vector<std::vector<std::vector<dp_record> > >(
+			MAX_CLOCK+1, std::vector<std::vector<dp_record> >(
+				len, std::vector<dp_record>(2))));
+
+	// Get every possible index state so we can iterate over them
+	// later - this saves a lot of nested for loops.
+	std::vector<dp_idx> possible_states;
+	dp_idx current;
+
+	for (int cur_mode = 0; cur_mode < (int)NUM_MODES; ++cur_mode) {
+		current.mode = (f_mode_t) cur_mode;
+		for (current.clock = MIN_CLOCK; current.clock <= MAX_CLOCK;
+			++current.clock) {
+			for (current.parity = 0; current.parity < 2; ++current.parity) {
+				possible_states.push_back(current);
+			}
+		}
+	}
+
+	for (size_t i = 0; i < len; ++i) {
+		for (dp_idx current_state: possible_states) {
+			current_state.idx = i;
+
+			// Get the current pulse length based on the clock and delay,
+			// as well as what the clock would be if the signal was
+			// perfectly centered. The latter is used for penalty
+			// calculations.
+
+			dp_record cur_record;
+
+			size_t observed_pulse_delay = fluxes[i];
+			cur_record.zero_bits = round(
+				2 * observed_pulse_delay / current_state.clock);
+			// Pulse lengths must be 1, 2, or 3.
+			cur_record.zero_bits = std::min(3, std::max(1,
+				(int)cur_record.zero_bits));
+
+			double expected_pulse_delay =
+				current_state.clock * (cur_record.zero_bits + 1)/2;
+
+			// If we're not the first flux delay, determine the least-penalty
+			// previous state to use.
+
+			if (i == 0) {
+				dp[current_state.mode][current_state.clock]
+					[current_state.idx][current_state.parity] = cur_record;
+				continue;
+			}
+
+			double best_penalty = std::numeric_limits<double>::infinity();
+			dp_idx recordholder;
+
+			for (dp_idx last_state: possible_states) {
+				last_state.idx = i-1;
+				dp_record last_record = dp[last_state.mode][last_state.clock]
+					[last_state.idx][last_state.parity];
+
+				// Calculate the penalty when transitioning from this
+				// state. (I may move this to another function later.)
+
+				double candidate_penalty = sqr(current_state.clock - last_state.clock) +
+					alpha * sqr(observed_pulse_delay - expected_pulse_delay);
+
+				// Add the accumulated penalty from the last state.
+				candidate_penalty += last_record.penalty;
+
+				if (candidate_penalty < best_penalty) {
+					best_penalty = candidate_penalty;
+					recordholder = last_state;
+				}
+			}
+
+			cur_record.penalty = best_penalty;
+			cur_record.previous_opt = recordholder;
+		}
+	}
+
+	// TODO: Get the solution and output it. (Compare to the Python solution)
 }
 
 int main(int argc, char ** argv) {
@@ -129,7 +231,8 @@ int main(int argc, char ** argv) {
 	std::vector<flux_record> flux_records = 
 		get_flux_record(flux_filename, true);
 
-	// Just do something with the first track.
+	// Just do something with the first record.
+	do_dp(flux_records[0], 123456); // 1234567 causes OOM
 
 	return 0;
 }
