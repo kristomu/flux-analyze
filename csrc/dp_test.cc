@@ -78,6 +78,7 @@
 
 #include "flux_record.h"
 
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <cmath>
@@ -93,7 +94,7 @@ enum f_mode_t {
 class dp_idx {
 	public:
 		f_mode_t mode;
-		u_char clock;
+		short clock;
 		int idx;
 		u_char parity;
 };
@@ -110,7 +111,7 @@ const int MIN_CLOCK = 1, MAX_CLOCK = 100;
 
 double sqr(double x) { return x*x; }
 
-void do_dp(const flux_record & f, size_t len) {
+std::vector<int> do_dp(const flux_record & f, size_t len) {
 
 	// Noise sensitivity hyperparameter.
 	// Higher values of this allows greater changes in clock
@@ -155,7 +156,7 @@ void do_dp(const flux_record & f, size_t len) {
 		}
 	}
 
-	for (size_t i = 0; i < len; ++i) {
+	for (size_t i = 0; i < fluxes.size(); ++i) {
 		for (dp_idx current_state: possible_states) {
 			current_state.idx = i;
 
@@ -168,18 +169,21 @@ void do_dp(const flux_record & f, size_t len) {
 
 			size_t observed_pulse_delay = fluxes[i];
 			cur_record.zero_bits = round(
-				2 * observed_pulse_delay / current_state.clock);
+				2.0 * observed_pulse_delay / current_state.clock) - 1;
 			// Pulse lengths must be 1, 2, or 3.
 			cur_record.zero_bits = std::min(3, std::max(1,
 				(int)cur_record.zero_bits));
 
 			double expected_pulse_delay =
-				current_state.clock * (cur_record.zero_bits + 1)/2;
+				current_state.clock * (cur_record.zero_bits + 1)/ 2.0;
 
 			// If we're not the first flux delay, determine the least-penalty
 			// previous state to use.
 
 			if (i == 0) {
+				cur_record.penalty =
+					alpha * sqr(observed_pulse_delay - expected_pulse_delay);
+
 				dp[current_state.mode][current_state.clock]
 					[current_state.idx][current_state.parity] = cur_record;
 				continue;
@@ -187,6 +191,10 @@ void do_dp(const flux_record & f, size_t len) {
 
 			double best_penalty = std::numeric_limits<double>::infinity();
 			dp_idx recordholder;
+
+			// C++ isn't clever enough to know that every value <= infinity,
+			// hence we have to explicitly set the recordholder like this.
+			bool primed = false;
 
 			for (dp_idx last_state: possible_states) {
 				last_state.idx = i-1;
@@ -202,18 +210,75 @@ void do_dp(const flux_record & f, size_t len) {
 				// Add the accumulated penalty from the last state.
 				candidate_penalty += last_record.penalty;
 
-				if (candidate_penalty < best_penalty) {
+				if (candidate_penalty <= best_penalty || !primed) {
 					best_penalty = candidate_penalty;
 					recordholder = last_state;
+					primed = true;
 				}
 			}
 
 			cur_record.penalty = best_penalty;
 			cur_record.previous_opt = recordholder;
+
+			dp[current_state.mode][current_state.clock]
+				[current_state.idx][current_state.parity] = cur_record;
 		}
 	}
 
-	// TODO: Get the solution and output it. (Compare to the Python solution)
+	// ============= Get the solution. ========
+
+	// First determine the least penalty solution.
+
+	double best_penalty = std::numeric_limits<double>::infinity();
+	dp_idx recordholder;
+
+	for (dp_idx current_state: possible_states) {
+		current_state.idx = fluxes.size()-1;
+
+		double candidate_penalty = dp[current_state.mode]
+			[current_state.clock][current_state.idx]
+			[current_state.parity].penalty;
+
+		if (candidate_penalty <= best_penalty) {
+			recordholder = current_state;
+			best_penalty = candidate_penalty;
+		}
+	}
+
+	std::cout << "Optimal penalty: " << best_penalty << "\n";
+
+	std::vector<dp_idx> optimal_path;
+	std::vector<dp_record> optimal_values;
+
+	// Trace the solution back through the DP array
+
+	for (size_t i = 0; i < fluxes.size(); ++i) {
+		optimal_path.push_back(recordholder);
+
+		dp_record at_current = dp[recordholder.mode]
+			[recordholder.clock][recordholder.idx]
+			[recordholder.parity];
+
+		optimal_values.push_back(at_current);
+
+		recordholder = at_current.previous_opt;
+	}
+
+	// And reverse the order of that path to get beginning to end.
+
+	std::reverse(optimal_path.begin(), optimal_path.end());
+	std::reverse(optimal_values.begin(), optimal_values.end());
+
+	std::vector<int> clocks, zero_bits;
+	std::vector<double> penalties;
+
+	for (size_t i = 0; i < optimal_values.size(); ++i) {
+		clocks.push_back(optimal_path[i].clock);
+		zero_bits.push_back(optimal_values[i].zero_bits);
+		penalties.push_back(optimal_values[i].penalty);
+	}
+
+	return zero_bits;
 }
 
 int main(int argc, char ** argv) {
@@ -232,7 +297,7 @@ int main(int argc, char ** argv) {
 		get_flux_record(flux_filename, true);
 
 	// Just do something with the first record.
-	do_dp(flux_records[0], 123456); // 1234567 causes OOM
+	do_dp(flux_records[0], 1000); // 1234567 causes OOM
 
 	return 0;
 }
