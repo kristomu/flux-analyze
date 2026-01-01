@@ -83,6 +83,82 @@
 #include <limits>
 #include <cmath>
 
+/*	Detecting what MFM transitions are allowed is pretty easy from the pairs of sequence
+	bits alone. Assuming the first pair has already been verified as being part of an
+	allowed sequence, we have
+
+		XX 01	is valid (01 encodes for a 1 bit and can be preceded by anything)
+		01 00	is valid, but no other prefix is valid
+		00 10	is valid, and
+		10 10	is valid,
+
+	but no other combination is valid.
+
+	However, in order to make in-band give a penalty on MFM transitions that aren't
+	allowed, we need to keep track of when something disallowed happens even as each
+	decoded pulse sequence contributes a different number of bits. Consider, for
+	instance, an incoming 0001 sequence:
+
+			prior bits    | new bits
+			... 01 00 01  | 00 01
+			even parity	  | even parity
+
+	This is allowed, but
+
+			prior bits    | new bits
+			.... 01 00 1	0 00 1?
+			odd parity    | odd parity
+
+	here our bitstream stops at an odd number of bits, so we can't tell from the
+	prior bits alone if everything is allowed. There is a trick, though: if we
+	have odd parity, we can append a zero *only when checking if something is
+	allowed*, because every pulse has at least one zero bit. But this zero bit
+	must not be added to the record of bits produced, because the next pulse will
+	add it "for real".
+
+	So in the odd-parity example above, we would first check prior bits (at some
+	point when they were new bits)
+
+			...	01 00 1?		-->		.... 01 00 10
+	which is valid; and then
+
+				10 00 1?		-->		10 00 10
+
+	which is not. To do this properly, we need to keep track of parity - how many
+	bits have been emitted so far - so that we know whether the last bit seen before
+	this pulse is the end of a pair of MFM bits or is just the first bit of a pair
+	that we need to complete.
+
+	It suffices to keep track of the previous pulse as well, since even if both are
+	short:
+			...	01 01		(even parity)
+			..0 10 1?		(odd parity)
+	that's still enough to check two pairs to verify that we're not breaking any
+	transition rules.
+		(in the odd parity example above, the first 10 pulse would clock
+			.. X0 1?
+			where the X is from the previous pulse. It would then complete:
+			.. X0 10
+			and verify that 10 is correct given X0.
+		 Then the next 10 pulse would get
+			.. .. 10 1?
+			and complete this to
+			.. .. 10 10
+		 and verify that 10 is correct given 10.)
+*/
+
+// TODO: Decide what the parity is from the perspective of - the end of LPZB
+// or the end of it plus our own zero bits?
+
+// Checks if the sequence 1, a zeroes, 1, b zeroes, breaks any rules, when
+// the sequence 1, a zeroes has already been tested and can be assumed to
+// not have broken any rules. This is done by padding with a one on the left
+// and a zero on the right if required. It can probably be offloaded into a
+// lookup table if it proves to be too slow.
+bool is_mfm_valid(short last_pulse_zero_bits, short zero_bits, bool parity) {
+
+}
+
 enum f_mode_t {
 	IN_BAND = 0,
 	PREAMBLE_A = 1,
