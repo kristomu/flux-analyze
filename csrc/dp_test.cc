@@ -110,41 +110,16 @@
 			odd parity    | odd parity
 
 	here our bitstream stops at an odd number of bits, so we can't tell from the
-	prior bits alone if everything is allowed. There is a trick, though: if we
-	have odd parity, we can append a zero *only when checking if something is
-	allowed*, because every pulse has at least one zero bit. But this zero bit
-	must not be added to the record of bits produced, because the next pulse will
-	add it "for real".
+	prior bits alone if everything is allowed. There is a trick, though; because
+	every (legal) pulse length is at least one long, it produces at least one
+	zero bit before the trailing edge. So we must have
 
-	So in the odd-parity example above, we would first check prior bits (at some
-	point when they were new bits)
+			.... 01 00 1	0 00 10
 
-			...	01 00 1?		-->		.... 01 00 10
-	which is valid; and then
-
-				10 00 1?		-->		10 00 10
-
-	which is not. To do this properly, we need to keep track of parity - how many
-	bits have been emitted so far - so that we know whether the last bit seen before
-	this pulse is the end of a pair of MFM bits or is just the first bit of a pair
-	that we need to complete.
-
-	It suffices to keep track of the previous pulse as well, since even if both are
-	short:
-			...	01 01		(even parity)
-			..0 10 1?		(odd parity)
-	that's still enough to check two pairs to verify that we're not breaking any
-	transition rules.
-		(in the odd parity example above, the first 10 pulse would clock
-			.. X0 1?
-			where the X is from the previous pulse. It would then complete:
-			.. X0 10
-			and verify that 10 is correct given X0.
-		 Then the next 10 pulse would get
-			.. .. 10 1?
-			and complete this to
-			.. .. 10 10
-		 and verify that 10 is correct given 10.)
+	I'll put more information in a separate parity document, but the upshot
+	is that, as long as we have no much-too-long or much-too-short flux
+	transitions, then an MFM error occurs *only* at odd parity with a pulse
+	length of three.
 */
 
 // TODO: Decide what the parity is from the perspective of - the end of LPZB
@@ -155,8 +130,8 @@
 // not have broken any rules. This is done by padding with a one on the left
 // and a zero on the right if required. It can probably be offloaded into a
 // lookup table if it proves to be too slow.
-bool is_mfm_valid(short last_pulse_zero_bits, short zero_bits, bool parity) {
-
+bool is_mfm_valid(short zero_bits, u_char parity) {
+	return parity == 0 || zero_bits != 3;
 }
 
 enum f_mode_t {
@@ -218,8 +193,11 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 				len, std::vector<dp_record>(2))));
 
 	// Get every possible index state so we can iterate over them
-	// later - this saves a lot of nested for loops.
+	// later - this saves a lot of nested for loops. Also keep
+	// a track of possible states by parity, since valid past states
+	// are limited to having the same parity.
 	std::vector<dp_idx> possible_states;
+	std::vector<std::vector<dp_idx> > possible_states_by_parity(2);
 	dp_idx current;
 
 	for (int cur_mode = 0; cur_mode < (int)NUM_MODES; ++cur_mode) {
@@ -228,6 +206,7 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 			++current.clock) {
 			for (current.parity = 0; current.parity < 2; ++current.parity) {
 				possible_states.push_back(current);
+				possible_states_by_parity[current.parity].push_back(current);
 			}
 		}
 	}
@@ -265,14 +244,28 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 				continue;
 			}
 
-			double best_penalty = std::numeric_limits<double>::infinity();
-			dp_idx recordholder;
+			// Our current state has a particular parity, and the number of
+			// zero bits forces all our prior states to be of a particular
+			// parity. Determine which.
 
-			// C++ isn't clever enough to know that every value <= infinity,
-			// hence we have to explicitly set the recordholder like this.
+			// all zeroes plus trailing edge
+			int bits_generated = cur_record.zero_bits + 1;
+			u_char actual_parity = bits_generated % 2;
+
+			// If actual parity is the same as the current state's claimed
+			// parity, then the previous state must be even, otherwise odd
+			// (because 0 parity is even).
+			u_char required_past_parity = 0;
+			if (actual_parity != current_state.parity) {
+				required_past_parity = 1;
+			}
+
 			bool primed = false;
+			double best_penalty;
+			dp_idx best_idx;
 
-			for (dp_idx last_state: possible_states) {
+			for (dp_idx last_state: possible_states_by_parity[required_past_parity]) {
+
 				last_state.idx = i-1;
 				dp_record last_record = dp[last_state.mode][last_state.clock]
 					[last_state.idx][last_state.parity];
@@ -286,18 +279,22 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 				// Add the accumulated penalty from the last state.
 				candidate_penalty += last_record.penalty;
 
-				if (candidate_penalty <= best_penalty || !primed) {
+				if (!primed || candidate_penalty <= best_penalty) {
 					best_penalty = candidate_penalty;
-					recordholder = last_state;
+					best_idx = last_state;
 					primed = true;
 				}
 			}
 
-			cur_record.penalty = best_penalty;
-			cur_record.previous_opt = recordholder;
+			if (!primed) {
+				throw std::logic_error("DP: Could not find a prior state to build on!");
+			} else {
+				cur_record.penalty = best_penalty;
+				cur_record.previous_opt = best_idx;
 
-			dp[current_state.mode][current_state.clock]
-				[current_state.idx][current_state.parity] = cur_record;
+				dp[current_state.mode][current_state.clock]
+					[current_state.idx][current_state.parity] = cur_record;
+			}
 		}
 	}
 
@@ -347,12 +344,35 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 
 	std::vector<int> clocks, zero_bits;
 	std::vector<double> penalties;
+	std::vector<int> valid;
 
 	for (size_t i = 0; i < optimal_values.size(); ++i) {
 		clocks.push_back(optimal_path[i].clock);
 		zero_bits.push_back(optimal_values[i].zero_bits);
 		penalties.push_back(optimal_values[i].penalty);
+		if (is_mfm_valid(optimal_values[i].zero_bits,
+			optimal_path[i].parity)) {
+			valid.push_back(1);
+		} else {
+			valid.push_back(0);
+		}
 	}
+
+	// This shows a vast field of ones interspersed with
+	// 1 0 1 1 1 1 0 1 1 1 1 0 1, which I think is the intentional MFM
+	// errors of the OOB A1A1A1/C2C2C2 preambles.
+
+	// But try the MS Plus disk3 OK track (track 4 side 0) with 10000
+	// entries and it flips out. This suggests that my choice of the alpha
+	// hyperparameter is not a good one - or the penalty function itself
+	// isn't.
+
+	std::copy(valid.begin(), valid.end(), std::ostream_iterator<int>(std::cout, " " ));
+	std::cout << "\n";
+
+	// TODO: Manually verify that the valid/invalid values are correct
+	// by doing an old-fashioned MFM decode on the zero bits output and the
+	// initial parity.
 
 	return zero_bits;
 }
