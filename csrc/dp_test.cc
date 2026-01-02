@@ -79,9 +79,10 @@
 #include "flux_record.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <limits>
-#include <cmath>
+#include <numeric>
 
 /*	Detecting what MFM transitions are allowed is pretty easy from the pairs of sequence
 	bits alone. Assuming the first pair has already been verified as being part of an
@@ -122,16 +123,34 @@
 	length of three.
 */
 
-// TODO: Decide what the parity is from the perspective of - the end of LPZB
-// or the end of it plus our own zero bits?
+double sqr(double x) { return x*x; }
+
+// Debug and diagnostic functions.
+
+template<typename T> void print_vector(const std::vector<T> & vec) {
+	std::copy(vec.begin(), vec.end(), std::ostream_iterator<T>(std::cout, " " ));
+	std::cout << "\n";
+}
+
+double variance(const std::vector<int> & vec) {
+	double mean = std::accumulate(vec.begin(), vec.end(), 0) / (double)vec.size();
+	double var = 0;
+
+	for (int k: vec) {
+		var += sqr(k-mean);
+	}
+
+	return var;
+}
 
 // Checks if the sequence 1, a zeroes, 1, b zeroes, breaks any rules, when
 // the sequence 1, a zeroes has already been tested and can be assumed to
 // not have broken any rules. This is done by padding with a one on the left
-// and a zero on the right if required. It can probably be offloaded into a
-// lookup table if it proves to be too slow.
+// and a zero on the right if required. Parity is from the perspective of the
+// bits so far, including the trailing edge but not any of the zero bits
+// counted by zero_bits nor the present pulse's trailing edge.
 bool is_mfm_valid(short zero_bits, u_char parity) {
-	return parity == 0 || zero_bits != 3;
+	return !(parity == 1 && zero_bits == 3);
 }
 
 enum f_mode_t {
@@ -160,14 +179,13 @@ class dp_record {
 
 const int MIN_CLOCK = 1, MAX_CLOCK = 100;
 
-double sqr(double x) { return x*x; }
-
 std::vector<int> do_dp(const flux_record & f, size_t len) {
 
 	// Noise sensitivity hyperparameter.
 	// Higher values of this allows greater changes in clock
 	// from one pulse to the next, while lower values prioritize fitting
 	// the set clock to the current pulse delay.
+	// The range is 0..1.
 	double alpha = 0.5;
 
 	// Cut down the fluxes length so we can experiment with smaller
@@ -232,12 +250,17 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 			double expected_pulse_delay =
 				current_state.clock * (cur_record.zero_bits + 1)/ 2.0;
 
+			// Measure the difference between what we observed and what we would
+			// have expected if the clock was dead on.
+
+			double pulse_delay_error = sqr(
+				observed_pulse_delay - expected_pulse_delay);
+
 			// If we're not the first flux delay, determine the least-penalty
 			// previous state to use.
 
 			if (i == 0) {
-				cur_record.penalty =
-					alpha * sqr(observed_pulse_delay - expected_pulse_delay);
+				cur_record.penalty = alpha * pulse_delay_error;
 
 				dp[current_state.mode][current_state.clock]
 					[current_state.idx][current_state.parity] = cur_record;
@@ -273,8 +296,21 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 				// Calculate the penalty when transitioning from this
 				// state. (I may move this to another function later.)
 
-				double candidate_penalty = sqr(current_state.clock - last_state.clock) +
-					alpha * sqr(observed_pulse_delay - expected_pulse_delay);
+				double candidate_penalty = alpha * pulse_delay_error +
+					(1-alpha) * sqr(current_state.clock - last_state.clock);
+
+				// XXX: Biasing very slightly away from MFM errors is
+				// enough to break incorrectly classified/mass error
+				// near-ties as seen on MS_Plus_disk3_OK_track with ~10k pulses,
+				// but I want to do it in a more principled manner,
+				// so that's commented out for now.
+
+				/*
+				if (!is_mfm_valid(cur_record.zero_bits,
+					required_past_parity)) {
+					candidate_penalty += 1;
+				}
+				*/
 
 				// Add the accumulated penalty from the last state.
 				candidate_penalty += last_record.penalty;
@@ -303,7 +339,7 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 	// First determine the least penalty solution.
 
 	double best_penalty = std::numeric_limits<double>::infinity();
-	dp_idx recordholder;
+	dp_idx best_idx;
 
 	for (dp_idx current_state: possible_states) {
 		current_state.idx = fluxes.size()-1;
@@ -313,7 +349,7 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 			[current_state.parity].penalty;
 
 		if (candidate_penalty <= best_penalty) {
-			recordholder = current_state;
+			best_idx = current_state;
 			best_penalty = candidate_penalty;
 		}
 	}
@@ -326,15 +362,15 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 	// Trace the solution back through the DP array
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
-		optimal_path.push_back(recordholder);
+		optimal_path.push_back(best_idx);
 
-		dp_record at_current = dp[recordholder.mode]
-			[recordholder.clock][recordholder.idx]
-			[recordholder.parity];
+		dp_record at_current = dp[best_idx.mode]
+			[best_idx.clock][best_idx.idx]
+			[best_idx.parity];
 
 		optimal_values.push_back(at_current);
 
-		recordholder = at_current.previous_opt;
+		best_idx = at_current.previous_opt;
 	}
 
 	// And reverse the order of that path to get beginning to end.
@@ -363,12 +399,15 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 	// errors of the OOB A1A1A1/C2C2C2 preambles.
 
 	// But try the MS Plus disk3 OK track (track 4 side 0) with 10000
-	// entries and it flips out. This suggests that my choice of the alpha
-	// hyperparameter is not a good one - or the penalty function itself
-	// isn't.
+	// entries (or even just 500) and it flips out.
 
-	std::copy(valid.begin(), valid.end(), std::ostream_iterator<int>(std::cout, " " ));
-	std::cout << "\n";
+	std::cout << "Invalid and valid MFM bits (0 and 1 resp.):\n";
+	print_vector(valid);
+	
+	std::cout <<"\n\nEstimated clock rate:\n";
+	print_vector(clocks);
+
+	std::cout << "Clock variance: " << variance(clocks) << "\n";
 
 	// TODO: Manually verify that the valid/invalid values are correct
 	// by doing an old-fashioned MFM decode on the zero bits output and the
