@@ -32,7 +32,7 @@ add_executable(${PROG_NAME}
 
 add_executable(dp_test
 	flux_record.cc
-	dp_test.cc)
+	dp/dp_test.cc)
 
 add_executable(copy_flux
 	copy_flux.cc)

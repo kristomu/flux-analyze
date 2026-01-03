@@ -149,6 +149,8 @@ double variance(const std::vector<int> & vec) {
 // and a zero on the right if required. Parity is from the perspective of the
 // bits so far, including the trailing edge but not any of the zero bits
 // counted by zero_bits nor the present pulse's trailing edge.
+
+// See parity.md for more info.
 bool is_mfm_valid(short zero_bits, u_char parity) {
 	return !(parity == 1 && zero_bits == 3);
 }
