@@ -179,9 +179,17 @@ class dp_record {
 		dp_idx previous_opt;
 };
 
+class dp_results {
+	public:
+		std::vector<int> clocks, zero_bits;
+		std::vector<double> penalties;
+		std::vector<int> valid;
+		u_char initial_parity;
+};
+
 const int MIN_CLOCK = 1, MAX_CLOCK = 100;
 
-std::vector<int> do_dp(const flux_record & f, size_t len) {
+dp_results do_dp(const flux_record & f, size_t len) {
 
 	// Noise sensitivity hyperparameter.
 	// Higher values of this allows greater changes in clock
@@ -380,21 +388,25 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 	std::reverse(optimal_path.begin(), optimal_path.end());
 	std::reverse(optimal_values.begin(), optimal_values.end());
 
-	std::vector<int> clocks, zero_bits;
-	std::vector<double> penalties;
-	std::vector<int> valid;
+	dp_results out;
+	out.initial_parity = optimal_path[0].parity;
 
 	for (size_t i = 0; i < optimal_values.size(); ++i) {
-		clocks.push_back(optimal_path[i].clock);
-		zero_bits.push_back(optimal_values[i].zero_bits);
-		penalties.push_back(optimal_values[i].penalty);
+		out.clocks.push_back(optimal_path[i].clock);
+		out.zero_bits.push_back(optimal_values[i].zero_bits);
+		out.penalties.push_back(optimal_values[i].penalty);
 		if (is_mfm_valid(optimal_values[i].zero_bits,
 			optimal_path[i].parity)) {
-			valid.push_back(1);
+			out.valid.push_back(1);
 		} else {
-			valid.push_back(0);
+			out.valid.push_back(0);
 		}
 	}
+
+	return out;
+}
+
+void print_dp_results(const dp_results & results) {
 
 	// This shows a vast field of ones interspersed with
 	// 1 0 1 1 1 1 0 1 1 1 1 0 1, which I think is the intentional MFM
@@ -404,23 +416,131 @@ std::vector<int> do_dp(const flux_record & f, size_t len) {
 	// entries (or even just 500) and it flips out.
 
 	std::cout << "Invalid and valid MFM bits (0 and 1 resp.):\n";
-	print_vector(valid);
+	print_vector(results.valid);
 	
 	std::cout <<"\n\nEstimated clock rate:\n";
-	print_vector(clocks);
+	print_vector(results.clocks);
 
-	std::cout << "Clock variance: " << variance(clocks) << "\n";
+	std::cout << "Clock variance: " << variance(results.clocks) << "\n";
 
 	// TODO: Manually verify that the valid/invalid values are correct
 	// by doing an old-fashioned MFM decode on the zero bits output and the
 	// initial parity.
+}
 
-	return zero_bits;
+// Decode a stream of pulse delays (zero bit counts) and output which
+// pulses create an MFM violation.
+
+// We need to output pulses that create MFM violations rather than the
+// bits that are OK, because the on-the-fly calculation using parity
+// also works on a pulse-by-pulse basis.
+std::vector<int> valid_from_zero_bits(const std::vector<int> & zero_bits,
+	int initial_parity) {
+
+	std::vector<int> expanded_bit_train, responsible_pulse;
+
+	// If the initial parity is odd, we need to skip the first ouput bit.
+	bool skip = (initial_parity == 1);
+
+	size_t i;
+
+	for (i = 0; i < zero_bits.size(); ++i) {
+		std::cout << zero_bits[i] << " ";
+		// Add the leading zero bits
+		for (int j = 0; j < zero_bits[i]; ++j) {
+			if (skip) {
+				skip = false;
+				continue;
+			}
+			expanded_bit_train.push_back(0);
+			responsible_pulse.push_back(i);
+		}
+		// Then add the trailing edge.
+		expanded_bit_train.push_back(1);
+		responsible_pulse.push_back(i);
+	}
+
+	// Now decode.
+	bool first_bit = true;
+	int last_value = 0;
+
+	std::vector<int> valid_bit, valid_pulse(zero_bits.size(), 1);
+
+	for (i = 0; i < expanded_bit_train.size(); i += 2) {
+		// Get most and least significant bit of the pair.
+		int a = expanded_bit_train[i],
+			b = expanded_bit_train[i+1];
+
+		int pulse_idx = responsible_pulse[i];
+
+		if (a == 0 && b == 0) {
+			// Valid if last decoded bit was a one;
+			// produces a zero.
+			if (first_bit || last_value == 1) {
+				valid_bit.push_back(1);
+			} else {
+				valid_bit.push_back(0);
+				valid_pulse[pulse_idx] = 0;
+			}
+			last_value = 0;
+		}
+
+		if (a == 0 && b == 1) {
+			// Always valid, and generates a 1
+			valid_bit.push_back(1);
+			last_value = 1;
+		}
+
+		if (a == 1 && b == 0) {
+			// Valid if last decoded bit was a zero;
+			// produces a zero.
+			if (first_bit || last_value == 0) {
+				valid_bit.push_back(1);
+			} else {
+				valid_bit.push_back(0);
+				valid_pulse[pulse_idx] = 0;
+			}
+			last_value = 0;
+		}
+
+		if (a == 1 && b == 1) {
+			throw std::invalid_argument("illegal MFM bit pair");
+		}
+
+		first_bit = false;
+	}
+
+	return valid_pulse;
+}
+
+// TODO: results.valid are by *pulse*, inferred_valid is by *bit pair*.
+// Fix that.
+void test_dp_validity_consistent(const dp_results & results) {
+
+	std::vector<int> inferred_valid = valid_from_zero_bits(
+		results.zero_bits, results.initial_parity);
+
+	if (inferred_valid.size() != results.valid.size()) {
+		std::cout << "Inferred valid data is over " <<
+			inferred_valid.size() << " bit pairs, but on-the-fly" <<
+			" is over " << results.valid.size() << "\n";
+		return;
+	}
+
+	for (size_t i = 0; i < inferred_valid.size(); ++i) {
+		if (inferred_valid[i] != results.valid[i]) {
+			std::cout << "MFM validity test: mismatch between on-the-fly "
+				"and manual calc at " << i << "\n";
+			return;
+		}
+	}
+
+	std::cout << "Validity is consistent.\n";
 }
 
 int main(int argc, char ** argv) {
 
-	std::string flux_filename = "tracks/MS_Plus_disk3_OK_track.flux";
+	std::string flux_filename = "../tracks/MS_Plus_disk3_OK_track.flux";
 
 	if (argc < 2) {
 		std::cout << "Usage: " << argv[0] << " <flux image>\n";
@@ -434,7 +554,9 @@ int main(int argc, char ** argv) {
 		get_flux_record(flux_filename, true);
 
 	// Just do something with the first record.
-	do_dp(flux_records[0], 1000); // 1234567 causes OOM
+	dp_results res = do_dp(flux_records[0], 1000); // 1234567 causes OOM
+	print_dp_results(res);
+	test_dp_validity_consistent(res);
 
 	return 0;
 }
