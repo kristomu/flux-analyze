@@ -187,7 +187,13 @@ class dp_results {
 		u_char initial_parity;
 };
 
+// Minimum and maximum clock index value.
 const int MIN_CLOCK = 1, MAX_CLOCK = 100;
+
+// How much increasing index by one increases the clock,
+// e.g. CLOCK_GRANULARITY = 0.5 would make clock index 50
+// represent a clock value of 50 * 0.5 = 25.
+const double CLOCK_GRANULARITY = 1;
 
 dp_results do_dp(const flux_record & f, size_t len) {
 
@@ -248,17 +254,19 @@ dp_results do_dp(const flux_record & f, size_t len) {
 			// perfectly centered. The latter is used for penalty
 			// calculations.
 
+			double current_clock = current_state.clock * CLOCK_GRANULARITY;
+
 			dp_record cur_record;
 
 			size_t observed_pulse_delay = fluxes[i];
 			cur_record.zero_bits = round(
-				2.0 * observed_pulse_delay / current_state.clock) - 1;
+				2.0 * observed_pulse_delay / current_clock) - 1;
 			// Pulse lengths must be 1, 2, or 3.
 			cur_record.zero_bits = std::min(3, std::max(1,
 				(int)cur_record.zero_bits));
 
 			double expected_pulse_delay =
-				current_state.clock * (cur_record.zero_bits + 1)/ 2.0;
+				current_clock * (cur_record.zero_bits + 1)/ 2.0;
 
 			// Measure the difference between what we observed and what we would
 			// have expected if the clock was dead on.
@@ -306,8 +314,10 @@ dp_results do_dp(const flux_record & f, size_t len) {
 				// Calculate the penalty when transitioning from this
 				// state. (I may move this to another function later.)
 
+				double last_clock = last_state.clock * CLOCK_GRANULARITY;
+
 				double candidate_penalty = alpha * pulse_delay_error +
-					(1-alpha) * sqr(current_state.clock - last_state.clock);
+					(1-alpha) * sqr(current_clock - last_clock);
 
 				// XXX: Biasing very slightly away from MFM errors is
 				// enough to break incorrectly classified/mass error
@@ -423,9 +433,13 @@ void print_dp_results(const dp_results & results) {
 
 	std::cout << "Clock variance: " << variance(results.clocks) << "\n";
 
-	// TODO: Manually verify that the valid/invalid values are correct
-	// by doing an old-fashioned MFM decode on the zero bits output and the
-	// initial parity.
+	std::cout << "Initial parity: ";
+	switch(results.initial_parity) {
+		case 0: std::cout << "even.\n"; break;
+		case 1: std::cout << "odd.\n"; break;
+		default:
+			throw std::logic_error("print_dp_results: Invalid parity value!");
+	}
 }
 
 // Decode a stream of pulse delays (zero bit counts) and output which
@@ -445,7 +459,6 @@ std::vector<int> valid_from_zero_bits(const std::vector<int> & zero_bits,
 	size_t i;
 
 	for (i = 0; i < zero_bits.size(); ++i) {
-		std::cout << zero_bits[i] << " ";
 		// Add the leading zero bits
 		for (int j = 0; j < zero_bits[i]; ++j) {
 			if (skip) {

@@ -30,9 +30,9 @@ add_executable(${PROG_NAME}
 	timeline.cc
 	tools.cc)
 
-add_executable(dp_test
+add_executable(mfm_dp_test
 	flux_record.cc
-	dp/dp_test.cc)
+	dp/mfm_dp_test.cc)
 
 add_executable(copy_flux
 	copy_flux.cc)
@@ -48,5 +48,5 @@ set(ProtobufIncludePath ${CMAKE_CURRENT_BINARY_DIR}
 
 include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} ${ProtobufIncludePath})
 target_link_libraries( ${PROG_NAME} fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
-target_link_libraries( dp_test fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+target_link_libraries( mfm_dp_test fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
 target_link_libraries( copy_flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
