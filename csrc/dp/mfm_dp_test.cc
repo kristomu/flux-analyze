@@ -151,8 +151,13 @@ double variance(const std::vector<int> & vec) {
 // counted by zero_bits nor the present pulse's trailing edge.
 
 // See parity.md for more info.
-bool is_mfm_valid(short zero_bits, u_char parity) {
-	return !(parity == 1 && zero_bits == 3);
+bool is_mfm_valid(short zero_bits, u_char exclusive_parity) {
+	// (Trivia: it actually doesn't matter if we use exclusive or
+	// inclusive parity here because any pulse with three zero bits
+	// emits four in total, and 4 mod 2 == 0, so parity doesn't
+	// change. That said, doing so would be supremely confusing.)
+
+	return !(exclusive_parity == 1 && zero_bits == 3);
 }
 
 enum f_mode_t {
@@ -163,12 +168,17 @@ enum f_mode_t {
 	NUM_MODES = 4};
 
 // perhaps some better class names?
+
+// Inclusive parity is the parity of the sequence, i.e. number of
+// bits emitted *including* the zeroes and trailing one due to the
+// current pulse delay. Exclusive parity is the parity of the
+// sequence up to, but not including, the current pulse delay.
 class dp_idx {
 	public:
 		f_mode_t mode;
 		short clock;
 		int idx;
-		u_char parity;
+		u_char inclusive_parity;
 };
 
 class dp_record {
@@ -179,12 +189,33 @@ class dp_record {
 		dp_idx previous_opt;
 };
 
+// Given an inclusive parity, get the corresponding exclusive
+// parity.
+u_char get_exclusive_parity(short zero_bits,
+	u_char inclusive_parity) {
+
+	// The +1 is for the trailing edge's one bit.
+	int signed_parity = inclusive_parity - (zero_bits + 1);
+
+	while (signed_parity < 0) {
+		signed_parity += 2;
+	}
+
+	return signed_parity % 2;
+}
+
+u_char get_inclusive_parity(short zero_bits,
+	u_char exclusive_parity) {
+
+	return (exclusive_parity + zero_bits + 1) % 2;
+}
+
 class dp_results {
 	public:
 		std::vector<int> clocks, zero_bits;
 		std::vector<double> penalties;
 		std::vector<int> valid;
-		u_char initial_parity;
+		u_char starting_ex_parity; // starting exclusive parity
 };
 
 // Minimum and maximum clock index value.
@@ -231,16 +262,19 @@ dp_results do_dp(const flux_record & f, size_t len) {
 	// a track of possible states by parity, since valid past states
 	// are limited to having the same parity.
 	std::vector<dp_idx> possible_states;
-	std::vector<std::vector<dp_idx> > possible_states_by_parity(2);
+	std::vector<std::vector<dp_idx> > possible_states_by_inc_parity(2);
 	dp_idx current;
 
 	for (int cur_mode = 0; cur_mode < (int)NUM_MODES; ++cur_mode) {
 		current.mode = (f_mode_t) cur_mode;
 		for (current.clock = MIN_CLOCK; current.clock <= MAX_CLOCK;
 			++current.clock) {
-			for (current.parity = 0; current.parity < 2; ++current.parity) {
+			for (current.inclusive_parity = 0; current.inclusive_parity < 2;
+				++current.inclusive_parity) {
+
 				possible_states.push_back(current);
-				possible_states_by_parity[current.parity].push_back(current);
+				possible_states_by_inc_parity[
+					current.inclusive_parity].push_back(current);
 			}
 		}
 	}
@@ -285,31 +319,23 @@ dp_results do_dp(const flux_record & f, size_t len) {
 				continue;
 			}
 
-			// Our current state has a particular parity, and the number of
-			// zero bits forces all our prior states to be of a particular
-			// parity. Determine which.
+			// Our current state has a particular inclusive parity, and
+			// should thus be matched up with a past state that has the same
+			// *inclusive* parity as our *exclusive* parity, so that adding
+			// our emitted bits produces the given inclusive parity.
 
-			// all zeroes plus trailing edge
-			int bits_generated = cur_record.zero_bits + 1;
-			u_char actual_parity = bits_generated % 2;
-
-			// If actual parity is the same as the current state's claimed
-			// parity, then the previous state must be even, otherwise odd
-			// (because 0 parity is even).
-			u_char required_past_parity = 0;
-			if (actual_parity != current_state.parity) {
-				required_past_parity = 1;
-			}
+			u_char exclusive_parity = get_exclusive_parity(
+				cur_record.zero_bits, current_state.inclusive_parity);
 
 			bool primed = false;
 			double best_penalty;
 			dp_idx best_idx;
 
-			for (dp_idx last_state: possible_states_by_parity[required_past_parity]) {
+			for (dp_idx last_state: possible_states_by_inc_parity[exclusive_parity]) {
 
 				last_state.idx = i-1;
 				dp_record last_record = dp[last_state.mode][last_state.clock]
-					[last_state.idx][last_state.parity];
+					[last_state.idx][last_state.inclusive_parity];
 
 				// Calculate the penalty when transitioning from this
 				// state. (I may move this to another function later.)
@@ -327,7 +353,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 
 				/*
 				if (!is_mfm_valid(cur_record.zero_bits,
-					required_past_parity)) {
+					exclusive_parity)) {
 					candidate_penalty += 1;
 				}
 				*/
@@ -348,8 +374,8 @@ dp_results do_dp(const flux_record & f, size_t len) {
 				cur_record.penalty = best_penalty;
 				cur_record.previous_opt = best_idx;
 
-				dp[current_state.mode][current_state.clock]
-					[current_state.idx][current_state.parity] = cur_record;
+				dp[current_state.mode][current_state.clock][current_state.idx]
+					[current_state.inclusive_parity] = cur_record;
 			}
 		}
 	}
@@ -366,7 +392,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 
 		double candidate_penalty = dp[current_state.mode]
 			[current_state.clock][current_state.idx]
-			[current_state.parity].penalty;
+			[current_state.inclusive_parity].penalty;
 
 		if (candidate_penalty <= best_penalty) {
 			best_idx = current_state;
@@ -386,7 +412,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 
 		dp_record at_current = dp[best_idx.mode]
 			[best_idx.clock][best_idx.idx]
-			[best_idx.parity];
+			[best_idx.inclusive_parity];
 
 		optimal_values.push_back(at_current);
 
@@ -399,14 +425,21 @@ dp_results do_dp(const flux_record & f, size_t len) {
 	std::reverse(optimal_values.begin(), optimal_values.end());
 
 	dp_results out;
-	out.initial_parity = optimal_path[0].parity;
+	out.starting_ex_parity = get_exclusive_parity(
+		optimal_values[0].zero_bits,
+		optimal_path[0].inclusive_parity);
 
 	for (size_t i = 0; i < optimal_values.size(); ++i) {
 		out.clocks.push_back(optimal_path[i].clock);
 		out.zero_bits.push_back(optimal_values[i].zero_bits);
 		out.penalties.push_back(optimal_values[i].penalty);
+
+		int exclusive_parity = get_exclusive_parity(
+			optimal_values[i].zero_bits,
+			optimal_path[i].inclusive_parity);
+
 		if (is_mfm_valid(optimal_values[i].zero_bits,
-			optimal_path[i].parity)) {
+			exclusive_parity)) {
 			out.valid.push_back(1);
 		} else {
 			out.valid.push_back(0);
@@ -433,8 +466,8 @@ void print_dp_results(const dp_results & results) {
 
 	std::cout << "Clock variance: " << variance(results.clocks) << "\n";
 
-	std::cout << "Initial parity: ";
-	switch(results.initial_parity) {
+	std::cout << "Starting exclusive parity: ";
+	switch(results.starting_ex_parity) {
 		case 0: std::cout << "even.\n"; break;
 		case 1: std::cout << "odd.\n"; break;
 		default:
@@ -449,22 +482,24 @@ void print_dp_results(const dp_results & results) {
 // bits that are OK, because the on-the-fly calculation using parity
 // also works on a pulse-by-pulse basis.
 std::vector<int> valid_from_zero_bits(const std::vector<int> & zero_bits,
-	int initial_parity) {
+	int starting_ex_parity) {
 
 	std::vector<int> expanded_bit_train, responsible_pulse;
 
-	// If the initial parity is odd, we need to skip the first ouput bit.
-	bool skip = (initial_parity == 1);
+	// If the initial parity is odd, then pull in the preceding
+	// trailing edge. (I.e. we assume the number of bits clocked is 1,
+	// not -1, if the initial parity is odd.)
+
+	if (starting_ex_parity == 1) {
+		expanded_bit_train.push_back(1);
+		responsible_pulse.push_back(-1);
+	}
 
 	size_t i;
 
 	for (i = 0; i < zero_bits.size(); ++i) {
 		// Add the leading zero bits
 		for (int j = 0; j < zero_bits[i]; ++j) {
-			if (skip) {
-				skip = false;
-				continue;
-			}
 			expanded_bit_train.push_back(0);
 			responsible_pulse.push_back(i);
 		}
@@ -479,12 +514,12 @@ std::vector<int> valid_from_zero_bits(const std::vector<int> & zero_bits,
 
 	std::vector<int> valid_bit, valid_pulse(zero_bits.size(), 1);
 
-	for (i = 0; i < expanded_bit_train.size(); i += 2) {
+	for (i = 0; i < expanded_bit_train.size() - 1; i += 2) {
 		// Get most and least significant bit of the pair.
 		int a = expanded_bit_train[i],
 			b = expanded_bit_train[i+1];
 
-		int pulse_idx = responsible_pulse[i];
+		int pulse_idx = std::max(0, responsible_pulse[i]);
 
 		if (a == 0 && b == 0) {
 			// Valid if last decoded bit was a one;
@@ -531,7 +566,7 @@ std::vector<int> valid_from_zero_bits(const std::vector<int> & zero_bits,
 void test_dp_validity_consistent(const dp_results & results) {
 
 	std::vector<int> inferred_valid = valid_from_zero_bits(
-		results.zero_bits, results.initial_parity);
+		results.zero_bits, results.starting_ex_parity);
 
 	if (inferred_valid.size() != results.valid.size()) {
 		std::cout << "Inferred valid data is over " <<
