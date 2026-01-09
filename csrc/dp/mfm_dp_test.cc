@@ -79,6 +79,7 @@
 #include "flux_record.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -163,9 +164,9 @@ bool is_mfm_valid(short zero_bits, u_char exclusive_parity) {
 enum f_mode_t {
 	IN_BAND = 0,
 	PREAMBLE_A = 1,
-	PREAMBLE_C = 2,
-	ILLEGIBLE = 3,
-	NUM_MODES = 4};
+	//PREAMBLE_C = 2,
+	ILLEGIBLE = 2,
+	NUM_MODES = 3};
 
 // perhaps some better class names?
 
@@ -225,6 +226,87 @@ const int MIN_CLOCK = 1, MAX_CLOCK = 100;
 // e.g. CLOCK_GRANULARITY = 0.5 would make clock index 50
 // represent a clock value of 50 * 0.5 = 25.
 const double CLOCK_GRANULARITY = 1;
+
+// State transition stuff.
+// Is this the best way to do things? IDK
+// Perhaps better to put it in a class later.
+
+// ---- Hyperparameters ----
+
+// How much does an MFM error cost when in the in-band mode?
+const double IN_BAND_ERROR_PENALTY = 1;
+
+// How much does entering the fixed-pattern mode cost?
+const double FIXED_PATTERN_ENTRY_PENALTY = 1;
+
+// How much cheaper is the standard (clock variation) penalty in fixed mode?
+const double FIXED_PATTERN_PENALTY_FACTOR = 0.5;
+
+// Now I need some clean way to propose a state transition evolution.
+// The simplest way to do so might be to divide this into two functions.
+// The first function returns the penalty of doing the transition; and
+// the second updates dp_record accordingly.
+// Our inputs are the past and present dp_records (or past dp_record and
+// present zero_bits???) as well as their dp_idx indices.
+
+// This suggests that zero_bits is somehow special and that our
+// abstraction is wrong at some point. But I don't know how to fix
+// that at the moment.
+
+// Since the fixed pattern is supposed to multiply the standard clock
+// penalty by some factor, we also need to get the standard penalty
+// (or rather, its current term) as an input.
+
+/*class dp_record {
+	public:
+		short zero_bits = -1;
+		short OOB_sequence_index = -1;
+		double penalty = 0;
+		dp_idx previous_opt;
+};*/
+
+// I'm kinda inclined to just strip this pattern so that it always starts at
+// a zero and ends at a one. (Not a problem here; more of a problem for C2).
+// And then just deal with false positives elsewhere. It would make my task
+// so much easier...
+// Or I could just make the edge ones >=,
+// i.e. if first num zero bits >= num zero bits in pattern: OK
+// everything else is equality, then
+// if last num zero bits >= num zero bits in pattern: OK.
+// This also makes adding missing transitions easy. Well, relatively, depending
+// on where we are; if there's only one search pattern, then it's easy, otherwise
+// not so much.
+
+const std::array<int, 16> A_ONE_PATTERN = {0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1};
+// const int A_MAX_RUNS = 3; // Gonna do one run for now.
+
+double get_fixed_pattern_penalty(const dp_idx & past_idx,
+	const dp_record & past_record,
+	const dp_idx & present_idx,
+	const dp_idx & present_record,
+	short zero_bits, double standard_penalty) {
+
+	double penalty = 0;
+	if (present_idx.cur_mode != PREAMBLE_A) {
+		throw std::logic_error("Wrong pattern");
+	}
+
+	short needle_start = past_record.OOB_sequence_index;
+
+	if (past_idx.cur_mode != PREAMBLE_A) {
+		penalty += FIXED_PATTERN_ENTRY_PENALTY;
+		// The initial pulse must be matched from the right.
+		// That is, if the pulse is 0001 and the search pattern
+		// begins 001, then that's a match; similarly, if the
+		// search pattern begins in a one, everything matches.
+		needle_start = 0;
+	}
+
+	// TBD
+
+	return -1000;
+}
+
 
 dp_results do_dp(const flux_record & f, size_t len) {
 
