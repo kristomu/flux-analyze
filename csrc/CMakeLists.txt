@@ -34,6 +34,9 @@ add_executable(mfm_dp_test
 	flux_record.cc
 	dp/mfm_dp_test.cc)
 
+add_executable(mfm_dp_search_test
+	dp/fixed_search.cc)
+
 add_executable(copy_flux
 	copy_flux.cc)
 
