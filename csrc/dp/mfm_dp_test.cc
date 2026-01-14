@@ -265,49 +265,6 @@ const double FIXED_PATTERN_PENALTY_FACTOR = 0.5;
 		dp_idx previous_opt;
 };*/
 
-// I'm kinda inclined to just strip this pattern so that it always starts at
-// a zero and ends at a one. (Not a problem here; more of a problem for C2).
-// And then just deal with false positives elsewhere. It would make my task
-// so much easier...
-// Or I could just make the edge ones >=,
-// i.e. if first num zero bits >= num zero bits in pattern: OK
-// everything else is equality, then
-// if last num zero bits >= num zero bits in pattern: OK.
-// This also makes adding missing transitions easy. Well, relatively, depending
-// on where we are; if there's only one search pattern, then it's easy, otherwise
-// not so much.
-
-const std::array<int, 16> A_ONE_PATTERN = {0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1};
-// const int A_MAX_RUNS = 3; // Gonna do one run for now.
-
-double get_fixed_pattern_penalty(const dp_idx & past_idx,
-	const dp_record & past_record,
-	const dp_idx & present_idx,
-	const dp_idx & present_record,
-	short zero_bits, double standard_penalty) {
-
-	double penalty = 0;
-	if (present_idx.cur_mode != PREAMBLE_A) {
-		throw std::logic_error("Wrong pattern");
-	}
-
-	short needle_start = past_record.OOB_sequence_index;
-
-	if (past_idx.cur_mode != PREAMBLE_A) {
-		penalty += FIXED_PATTERN_ENTRY_PENALTY;
-		// The initial pulse must be matched from the right.
-		// That is, if the pulse is 0001 and the search pattern
-		// begins 001, then that's a match; similarly, if the
-		// search pattern begins in a one, everything matches.
-		needle_start = 0;
-	}
-
-	// TBD
-
-	return -1000;
-}
-
-
 dp_results do_dp(const flux_record & f, size_t len) {
 
 	// Noise sensitivity hyperparameter.
@@ -397,7 +354,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 				cur_record.penalty = alpha * pulse_delay_error;
 
 				dp[current_state.mode][current_state.clock]
-					[current_state.idx][current_state.parity] = cur_record;
+					[current_state.idx][current_state.inclusive_parity] = cur_record;
 				continue;
 			}
 
