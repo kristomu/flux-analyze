@@ -108,7 +108,9 @@ bool compare(const needle_spec & needle, size_t needle_idx,
 	return false;
 }
 
-bool contains(std::string haystack_str, std::string needle_str) {
+std::vector<int> get_matching_indices(
+	std::string haystack_str, std::string needle_str) {
+
 	needle_spec needle = get_needle(needle_str);
 	std::vector<int> num_zeroes_haystack = get_num_zeroes(haystack_str);
 
@@ -118,35 +120,84 @@ bool contains(std::string haystack_str, std::string needle_str) {
 	size_t haystack_len = num_zeroes_haystack.size(),
 		needle_len = needle.num_zeroes.size();
 
-	if (haystack_len < needle_len) {
-		return false;
+	std::vector<int> matches;
+
+	// Handle invalid inputs
+	if ((haystack_len < needle_len) || needle_len == 0) {
+		return matches;
 	}
 
-	for (size_t i = 0; i < haystack_len - needle_len; ++i) {
+	for (size_t i = 0; i < haystack_len - needle_len + 1; ++i) {
 		bool ok = true;
 		for (size_t j = 0; j < needle_len && ok; ++j) {
 			ok &= compare(needle, j, num_zeroes_haystack[j+i]);
 		}
 		if (ok) {
-			return true;
+			matches.push_back(i);
 		}
 	}
 
-	return false;
+	std::cout << "\n";
+
+	return matches;
+}
+
+size_t get_num_matches(std::string haystack_str,
+	std::string needle_str) {
+
+	return get_matching_indices(
+		haystack_str, needle_str).size();
+}
+
+bool contains(std::string haystack_str,
+	std::string needle_str) {
+
+	return get_matching_indices(
+		haystack_str, needle_str).size() > 0;
 }
 
 int main() {
-	// Test case
+	// Test cases
 	std::string haystack = "0001000100100010010010100100101",
 		needle = "0100010010001001";
 
 	if (!contains(haystack, needle)) {
-		std::cout << "Test failure (1)\n";
+		std::cout << "Test failure (match)\n";
+	}
+
+	std::string haystack_at_beginning = "00101",
+		needle_at_beginning = "001";
+
+	if (!contains(haystack_at_beginning, needle_at_beginning)) {
+		std::cout << "Test failure (match at the end)\n";
+	}
+
+	std::string haystack_at_end = "01001",
+		needle_at_end = "001";
+
+	if (!contains(haystack_at_end, needle_at_end)) {
+		std::cout << "Test failure (match at the end)\n";
 	}
 
 	std::string haystack_ii = "000100010010001010010100100101";
 
 	if (contains(haystack_ii, needle)) {
-		std::cout << "Test failure (2)\n";
+		std::cout << "Test failure (no match)\n";
+	}
+
+	// This should match twice
+	std::string haystack_twice = "00101001",
+		needle_twice = "001";
+
+	if (get_num_matches(haystack_twice, needle_twice) != 2) {
+		std::cout << "Test failure (match twice)\n";
+	}
+
+	// Overlapping case: this should only match once.
+	std::string haystack_overlap = "000100010001",
+		needle_overlap = "01000";
+
+	if (get_num_matches(haystack_overlap, needle_overlap) != 1) {
+		std::cout << "Test failure (overlapping)\n";
 	}
 }
