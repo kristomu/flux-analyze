@@ -82,8 +82,17 @@ needle_spec get_needle(std::string needle_str) {
 }
 
 // Do either a fully open or half-open comparison.
+
+// previous_ok: If we're checking a haystack index that was part
+// of a previous successful match, against the first needle index,
+// and that needle index is half-open, then we require an exact
+// match. This prevents false positives with consecutive matches:
+// one way to look at this is that the extra bits of the haystack
+// have been used up by the previous match and so can't be used
+// again.
+// This will need more sophisticated logic later.
 bool compare(const needle_spec & needle, size_t needle_idx,
-	int cur_haystack_num_nonzeroes) {
+	int cur_haystack_num_nonzeroes, bool previous_ok) {
 
 	if (needle.num_zeroes[needle_idx] == cur_haystack_num_nonzeroes) {
 		return true;
@@ -91,7 +100,7 @@ bool compare(const needle_spec & needle, size_t needle_idx,
 
 	bool half_open = false;
 
-	if (needle_idx == 0 && needle.first_half_open) {
+	if (needle_idx == 0 && needle.first_half_open && !previous_ok) {
 		half_open = true;
 	}
 
@@ -127,17 +136,19 @@ std::vector<int> get_matching_indices(
 		return matches;
 	}
 
+	bool previous_ok = false;
+
 	for (size_t i = 0; i < haystack_len - needle_len + 1; ++i) {
 		bool ok = true;
 		for (size_t j = 0; j < needle_len && ok; ++j) {
-			ok &= compare(needle, j, num_zeroes_haystack[j+i]);
+			ok &= compare(needle, j, num_zeroes_haystack[j+i],
+				previous_ok);
 		}
 		if (ok) {
 			matches.push_back(i);
 		}
+		previous_ok = ok;
 	}
-
-	std::cout << "\n";
 
 	return matches;
 }
@@ -194,10 +205,31 @@ int main() {
 	}
 
 	// Overlapping case: this should only match once.
+	//    00[0100 0]10001
+	// or 00 0100[01000]1
 	std::string haystack_overlap = "000100010001",
 		needle_overlap = "01000";
 
 	if (get_num_matches(haystack_overlap, needle_overlap) != 1) {
 		std::cout << "Test failure (overlapping)\n";
+	}
+
+	// More distant overlapping
+	haystack_overlap = "001001001001";
+	needle_overlap = "001001001";
+
+	if (get_num_matches(haystack_overlap, needle_overlap) != 1) {
+		std::cout << "Test failure (distant overlapping)\n";
+	}
+
+	// But this should match twice because there's room for it.
+	// That is, we can match 0[010][010] without overlapping any
+	// bits, even though we overlap pulse delay indices.
+	std::string haystack_permitted_overlap = "000100010",
+		needle_permitted_overlap = "010";
+
+	if (get_num_matches(haystack_permitted_overlap,
+		needle_permitted_overlap) != 2) {
+		std::cout << "Test failure (permitted overlapping)\n";
 	}
 }
