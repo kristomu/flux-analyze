@@ -35,6 +35,28 @@
 // more needles instead; I tried to implement consecutive matches but they
 // were too much of a hassle.
 
+// ....
+// I think there may be a problem here. Suppose the needle is
+// A1A1A1FB. Suppose the haystack is A1A1A1A1FB. When the DP hits the second
+// A1, it's faced with a choice of whether to build on the already existing
+// search (that has already matched A1 once) or to start a new one. Suppose
+// we go with the existing match. Then the fourth A1 will fail to match, even
+// though there would have been a match if we'd discarded the first A1.
+// Similarly, if we would always start anew, then a haystack of 00A1A1A1FB would
+// fail.
+// Hence, if we fail an ordinary compare(), we would need to check if some suffix
+// of what we already matched, is consistent with a continuation at the current
+// pulse length. But this again leads to a problem. Suppose that we have again
+// a haystack of A1A1A1A1FB with all A1s out-of-band, and we have some MFM penalty.
+// Suppose that at the fourth A1, the logic says: okay, a fourth A1 doesn't match
+// our needle, but the suffix A1A1 matches a third A1, so we can use that. But then
+// the first A1 got off without paying for its MFM violation.
+// It's possible this could be circumvented by using very complex penalties, but
+// there could be a ripple effect. The only *real* way to do this is to make the
+// number of common prefixes into an index, and we're already strapped for space
+// as is...
+// Ponder this more later.
+
 #pragma once
 
 #include <iostream>
