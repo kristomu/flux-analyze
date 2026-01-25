@@ -1,11 +1,14 @@
 // Experimenting with dynamic programming as a way to recover the data stream.
 
-/*	The overarching idea is that any data on a floppy may fall within one of three
-	categories:
+/*	My previous plan was a bit ambitious. Now I'll try to implement two different
+	DP algorithms: one slow but reasonably sure, and one quick and approximate.
+	They'll both assume MFM data (i.e. there's only one mode) with a penalty to
+	MFM errors. (I can add fixed OOB sequences later; in a perhaps funny instance
+	of "what's easy is hard, what's hard is easy", doing fixed sequence search
+	naively is very slow; we need another dimension to the DP array with length
+	equal to the longest needle/search string).
 
-		- In-band data (obeys MFM state transition rules)
-		- Out-of-band data (A1A1A1 or C2C2C2 preambles)
-		- Illegible data (wrong format, corrupted, etc).
+	Old comments below, adapted:
 
 	The dynamic programming approach would read the whole flux stream for every
 	possible clock at once, slowly varying the allowed clock according to a penalty
@@ -13,15 +16,8 @@
 	for the current clock to change too much from the previous pulse's clock.
 
 	This, as such, isn't too different from just doing a moving or exponential
-	average. But I've then intended to make the DP system enforce that all in-band
-	data must obey MFM rules. This would then make it switch modes exactly where
-	the out-of-band data appears, while trying to recover legible MFM data where
-	severe warping/clock skew occurs.
-
-	Then I might add support for missing bits, where the system can add split up
-	pulses where doing so is beneficial. In combination with known-length constraints
-	(e.g. that a sector that metadata says should have 4096 bits has exactly 4096
-	bits), this should make the process even better at recovering corrupted data.
+	average. But I've then intended to make the DP system prioritize that all
+	data must obey MFM rules.
 
 	However, I think braiding all of this into a DP algorithm could get very messy.
 	So beware, all who read this. I may need multiple iterations to get it to be
@@ -31,37 +27,27 @@
 /*	The current dynamic programming idea is as follows, where * indicates something
 	that hasn't been implemented yet.
 
-	There are four modes:
+	The mode is:
 		  0 - in-band
-		* 1 - out-of-band, A1A1A1 preamble
-		* 2 - out-of-band, C2C2C2 preamble
-		* 3 - everything else that doesn't fit the model ("unknown"/"illegible")
 
 	The state for each step is:
 		INDEX:	Current mode
 		INDEX:	Current estimated clock value
 		INDEX:	Current index into list of flux transitions (ith transition)
-		INDEX:	MFM decoding parity				*
+		INDEX:	MFM decoding parity
 
 		STATE:	Current flux delay period (number of zero bits)
-		STATE:	OOB sequence bit index			*
 		STATE:	accumulated penalty/cost
 		STATE:	previous optimal entry
 
 	where INDEX is a dimension and STATE is a value at a concrete array cell.
 
-	(When/if I add missing bit support, the current index INDEX should probably
-	be "number of flux transitions processed", while the actual array index is
-	(i, value left) so that we can insert flux transitions without disrupting
-	which real flux transition is being checked.)
-
 	MFM decoding parity is pretty tricky and needs a more detailed explanation.
 	I'll give that explanation later.
 */
 
-/*	For the first three modes, we're assuming the floppy is formatted with a
-	standard MFM encoding, where 0 indicates a lack of flux reversal and 1 is
-	its presence:
+/*	We're assuming the floppy is formatted with a standard MFM encoding, where 0
+	indicates a lack of flux reversal and 1 is its presence:
 
 		MFM sequence	last bit	current bit
 		01				N/A			1
@@ -161,13 +147,6 @@ bool is_mfm_valid(short zero_bits, u_char exclusive_parity) {
 	return !(exclusive_parity == 1 && zero_bits == 3);
 }
 
-enum f_mode_t {
-	IN_BAND = 0,
-	PREAMBLE_A = 1,
-	//PREAMBLE_C = 2,
-	ILLEGIBLE = 2,
-	NUM_MODES = 3};
-
 // perhaps some better class names?
 
 // Inclusive parity is the parity of the sequence, i.e. number of
@@ -176,7 +155,6 @@ enum f_mode_t {
 // sequence up to, but not including, the current pulse delay.
 class dp_idx {
 	public:
-		f_mode_t mode;
 		short clock;
 		int idx;
 		u_char inclusive_parity;
@@ -185,7 +163,6 @@ class dp_idx {
 class dp_record {
 	public:
 		short zero_bits = -1;
-		short OOB_sequence_index = -1;
 		double penalty = 0;
 		dp_idx previous_opt;
 };
@@ -215,12 +192,15 @@ class dp_results {
 	public:
 		std::vector<int> clocks, zero_bits;
 		std::vector<double> penalties;
-		std::vector<int> valid;
+		std::vector<int> valid;		// Does the current pules delay decode into
+									// something that fails MFM rules?
+
 		u_char starting_ex_parity; // starting exclusive parity
 };
 
 // Minimum and maximum clock index value.
 const int MIN_CLOCK = 1, MAX_CLOCK = 100;
+const int NUM_CLOCKS = MAX_CLOCK - MIN_CLOCK;
 
 // How much increasing index by one increases the clock,
 // e.g. CLOCK_GRANULARITY = 0.5 would make clock index 50
@@ -235,12 +215,6 @@ const double CLOCK_GRANULARITY = 1;
 
 // How much does an MFM error cost when in the in-band mode?
 const double IN_BAND_ERROR_PENALTY = 1;
-
-// How much does entering the fixed-pattern mode cost?
-const double FIXED_PATTERN_ENTRY_PENALTY = 1;
-
-// How much cheaper is the standard (clock variation) penalty in fixed mode?
-const double FIXED_PATTERN_PENALTY_FACTOR = 0.5;
 
 // Now I need some clean way to propose a state transition evolution.
 // The simplest way to do so might be to divide this into two functions.
@@ -265,6 +239,59 @@ const double FIXED_PATTERN_PENALTY_FACTOR = 0.5;
 		dp_idx previous_opt;
 };*/
 
+// Everything about the current state should be set (i.e. copied from
+// an admissible state, and index set to the proper bit number). Note that
+// inclusive parity is specified ahead of time - we then work backwards to find
+// every past state consistent with it.
+
+// TBD.
+/*
+void dp_transition(dp_idx & current_state, int pulse_delay_length) {
+	// Get the current pulse length based on the clock and delay,
+	// as well as what the clock would be if the signal was
+	// perfectly centered. The latter is used for penalty
+	// calculations.
+
+	double current_clock = current_state.clock * CLOCK_GRANULARITY;
+
+	dp_record cur_record;
+
+	size_t observed_pulse_delay = fluxes[i];
+	cur_record.zero_bits = round(
+		2.0 * observed_pulse_delay / current_clock) - 1;
+	// Pulse lengths must be 1, 2, or 3.
+	cur_record.zero_bits = std::min(3, std::max(1,
+		(int)cur_record.zero_bits));
+
+	double expected_pulse_delay =
+		current_clock * (cur_record.zero_bits + 1)/ 2.0;
+
+	// Measure the difference between what we observed and what we would
+	// have expected if the clock was dead on.
+
+	double pulse_delay_error = sqr(
+		observed_pulse_delay - expected_pulse_delay);
+
+	// If we're not the first flux delay, determine the least-penalty
+	// previous state to use.
+
+	if (i == 0) {
+		cur_record.penalty = alpha * pulse_delay_error;
+
+		dp[current_state.mode][current_state.clock]
+			[current_state.idx][current_state.inclusive_parity] = cur_record;
+		continue;
+	}
+}*/
+
+int get_index(const dp_idx & x, int /*length*/) {
+	return x.idx * NUM_CLOCKS * 2 + (x.clock-MIN_CLOCK) * 2 + x.inclusive_parity;
+}
+
+int get_max_index(int length) {
+	return length * NUM_CLOCKS * 2 + (MAX_CLOCK - MIN_CLOCK) * 2 + 1;
+}
+
 dp_results do_dp(const flux_record & f, size_t len) {
 
 	// Noise sensitivity hyperparameter.
@@ -282,19 +309,11 @@ dp_results do_dp(const flux_record & f, size_t len) {
 		fluxes.resize(len);
 	}
 
-	// We can probably cut down on the space complexity here by having
-	// only two time instances (old and new) and recording the whole
-	// trace... maybe do that later if necessary.
-	// Or by doing it in chunks, e.g. 1000 a pop; get the trace from the
-	// last 1000; then do the previous 1000 and stitch together from the
-	// trace we got... O(kn) time, k space instead of O(n) time and space,
-	// where k is the chunk length.
-	// We'll see.
-
-	std::vector<std::vector<std::vector<std::vector<dp_record> > > > dp(
-		NUM_MODES, std::vector<std::vector<std::vector<dp_record> > >(
+	/*std::vector<std::vector<std::vector<dp_record> > > dp(
 			MAX_CLOCK+1, std::vector<std::vector<dp_record> >(
-				len, std::vector<dp_record>(2))));
+				len, std::vector<dp_record>(2)));
+	*/
+	std::vector<dp_record> dp_linear(get_max_index(len));
 
 	// Get every possible index state so we can iterate over them
 	// later - this saves a lot of nested for loops. Also keep
@@ -304,21 +323,19 @@ dp_results do_dp(const flux_record & f, size_t len) {
 	std::vector<std::vector<dp_idx> > possible_states_by_inc_parity(2);
 	dp_idx current;
 
-	for (int cur_mode = 0; cur_mode < (int)NUM_MODES; ++cur_mode) {
-		current.mode = (f_mode_t) cur_mode;
-		for (current.clock = MIN_CLOCK; current.clock <= MAX_CLOCK;
-			++current.clock) {
-			for (current.inclusive_parity = 0; current.inclusive_parity < 2;
-				++current.inclusive_parity) {
+	for (current.clock = MIN_CLOCK; current.clock <= MAX_CLOCK;
+		++current.clock) {
+		for (current.inclusive_parity = 0; current.inclusive_parity < 2;
+			++current.inclusive_parity) {
 
-				possible_states.push_back(current);
-				possible_states_by_inc_parity[
-					current.inclusive_parity].push_back(current);
-			}
+			possible_states.push_back(current);
+			possible_states_by_inc_parity[
+				current.inclusive_parity].push_back(current);
 		}
 	}
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
+		dp_record cur_record;
 		for (dp_idx current_state: possible_states) {
 			current_state.idx = i;
 
@@ -329,7 +346,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 
 			double current_clock = current_state.clock * CLOCK_GRANULARITY;
 
-			dp_record cur_record;
+			//dp_record cur_record;
 
 			size_t observed_pulse_delay = fluxes[i];
 			cur_record.zero_bits = round(
@@ -353,8 +370,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 			if (i == 0) {
 				cur_record.penalty = alpha * pulse_delay_error;
 
-				dp[current_state.mode][current_state.clock]
-					[current_state.idx][current_state.inclusive_parity] = cur_record;
+				dp_linear[get_index(current_state, len)] = cur_record;
 				continue;
 			}
 
@@ -369,12 +385,12 @@ dp_results do_dp(const flux_record & f, size_t len) {
 			bool primed = false;
 			double best_penalty;
 			dp_idx best_idx;
+			dp_record last_record;
 
 			for (dp_idx last_state: possible_states_by_inc_parity[exclusive_parity]) {
 
 				last_state.idx = i-1;
-				dp_record last_record = dp[last_state.mode][last_state.clock]
-					[last_state.idx][last_state.inclusive_parity];
+				last_record = dp_linear[get_index(last_state, len)];
 
 				// Calculate the penalty when transitioning from this
 				// state. (I may move this to another function later.)
@@ -390,12 +406,10 @@ dp_results do_dp(const flux_record & f, size_t len) {
 				// but I want to do it in a more principled manner,
 				// so that's commented out for now.
 
-				/*
 				if (!is_mfm_valid(cur_record.zero_bits,
 					exclusive_parity)) {
-					candidate_penalty += 1;
+					candidate_penalty += IN_BAND_ERROR_PENALTY;
 				}
-				*/
 
 				// Add the accumulated penalty from the last state.
 				candidate_penalty += last_record.penalty;
@@ -413,8 +427,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 				cur_record.penalty = best_penalty;
 				cur_record.previous_opt = best_idx;
 
-				dp[current_state.mode][current_state.clock][current_state.idx]
-					[current_state.inclusive_parity] = cur_record;
+				dp_linear[get_index(current_state, len)] = cur_record;
 			}
 		}
 	}
@@ -429,9 +442,8 @@ dp_results do_dp(const flux_record & f, size_t len) {
 	for (dp_idx current_state: possible_states) {
 		current_state.idx = fluxes.size()-1;
 
-		double candidate_penalty = dp[current_state.mode]
-			[current_state.clock][current_state.idx]
-			[current_state.inclusive_parity].penalty;
+		double candidate_penalty = dp_linear[
+			get_index(current_state, len)].penalty;
 
 		if (candidate_penalty <= best_penalty) {
 			best_idx = current_state;
@@ -449,9 +461,7 @@ dp_results do_dp(const flux_record & f, size_t len) {
 	for (size_t i = 0; i < fluxes.size(); ++i) {
 		optimal_path.push_back(best_idx);
 
-		dp_record at_current = dp[best_idx.mode]
-			[best_idx.clock][best_idx.idx]
-			[best_idx.inclusive_parity];
+		dp_record at_current = dp_linear[get_index(best_idx, len)];
 
 		optimal_values.push_back(at_current);
 
@@ -625,6 +635,66 @@ void test_dp_validity_consistent(const dp_results & results) {
 	std::cout << "Validity is consistent.\n";
 }
 
+/*
+std::vector<int> fluxes = f.fluxes;
+	std::cout << "Flux length: " << fluxes.size() << " max length specified: " << len << "\n";
+	if (fluxes.size() > len) {
+		fluxes.resize(len);
+	}
+*/
+
+void periodicity_test(const flux_record & /*f*/) {
+	// Quick and dirty periodicity test. Take the differences between consecutive
+	// flux delays, round them to nearest 10, and then look for rare patterns
+	// that recur to find a possible period for the floppy signal.
+
+	// With 300 RPM (0.2 secs per revolution), and with a clock rate of 500 kHz,
+	// and one FE unit being 83 ns, we'd expect a running sum of about
+	// 2.4 million between each loop. Suppose the normal clock value is 24.
+	// Then that's 100k values (transitions).
+
+	// (My DP can do that on an i7 in about three seconds now. That's a little
+	// slow, but ideas...)
+
+	// TODO: Actually implement that! :-P
+}
+
+// Get an approximate clock rate by using exponential weighted averaging
+// with alpha=0.5. I think that's what a real FDD does; I might also be able
+// to use this to narrow down the clock range that has to be investigated
+// in the DP.
+// The int value is -1 for the first 300 or so delays to signify that the
+// EWMA has to "warm up" first.
+
+std::vector<int> get_approximate_clock(const flux_record & f) {
+	std::vector<int> fluxes = f.fluxes;
+	std::vector<int> appx_clock;
+	std::cout << "[Appx clock] Flux length: " << fluxes.size() << "\n";	
+
+	double mean_clock = 1; // or insert your prior here
+	size_t warmup_period = 300;
+
+	for (size_t i = 0; i < fluxes.size(); ++i) {
+		size_t observed_pulse_delay = fluxes[i];
+		
+		size_t zero_bits = round(
+			2.0 * observed_pulse_delay / mean_clock) - 1;
+		zero_bits = std::min(3, std::max(1, (int)zero_bits));
+
+		double new_clock = 2 * observed_pulse_delay / (zero_bits + 1);
+
+		mean_clock = 0.5 * mean_clock + 0.5 * new_clock;
+
+		if (i < warmup_period) {
+			appx_clock.push_back(-1);
+		} else {
+			appx_clock.push_back(round(mean_clock));
+		}
+	}
+
+	return appx_clock;
+}
+
 int main(int argc, char ** argv) {
 
 	std::string flux_filename = "../tracks/MS_Plus_disk3_OK_track.flux";
@@ -641,7 +711,7 @@ int main(int argc, char ** argv) {
 		get_flux_record(flux_filename, true);
 
 	// Just do something with the first record.
-	dp_results res = do_dp(flux_records[0], 1000); // 1234567 causes OOM
+	dp_results res = do_dp(flux_records[0], 100000); // 1234567 causes OOM
 	print_dp_results(res);
 	test_dp_validity_consistent(res);
 
