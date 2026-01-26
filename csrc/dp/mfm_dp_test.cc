@@ -666,13 +666,20 @@ void periodicity_test(const flux_record & /*f*/) {
 // The int value is -1 for the first 300 or so delays to signify that the
 // EWMA has to "warm up" first.
 
-std::vector<int> get_approximate_clock(const flux_record & f) {
-	std::vector<int> fluxes = f.fluxes;
-	std::vector<int> appx_clock;
+std::vector<double> get_approximate_clock(
+	const std::vector<int> & fluxes, double alpha,
+	double clock_prior, bool use_prior) {
+
+	std::vector<double> appx_clock;
 	std::cout << "[Appx clock] Flux length: " << fluxes.size() << "\n";	
 
 	double mean_clock = 1; // or insert your prior here
 	size_t warmup_period = 300;
+
+	if (use_prior) {
+		mean_clock = clock_prior;
+		warmup_period = 0;
+	}
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
 		size_t observed_pulse_delay = fluxes[i];
@@ -683,13 +690,63 @@ std::vector<int> get_approximate_clock(const flux_record & f) {
 
 		double new_clock = 2 * observed_pulse_delay / (zero_bits + 1);
 
-		mean_clock = 0.5 * mean_clock + 0.5 * new_clock;
+		mean_clock = (1-alpha) * mean_clock + alpha * new_clock;
 
 		if (i < warmup_period) {
 			appx_clock.push_back(-1);
 		} else {
-			appx_clock.push_back(round(mean_clock));
+			appx_clock.push_back(mean_clock);
 		}
+	}
+
+	return appx_clock;
+}
+
+std::vector<double> get_approximate_clock(
+	const std::vector<int> & fluxes, double alpha) {
+
+	return get_approximate_clock(fluxes, alpha,
+		1, false);
+}
+
+
+std::vector<double> get_approximate_acausal_clock(const flux_record & f) {
+	std::vector<int> fluxes = f.fluxes;
+
+	double alpha = 0.5;
+
+	// Forward pass
+	std::vector<double> fwd = get_approximate_clock(fluxes, 1-(1-alpha)/2.0);
+
+	// Backward pass
+	std::reverse(fluxes.begin(), fluxes.end());
+
+	double prior = *fwd.rbegin();
+	std::vector<double> backward = get_approximate_clock(fluxes,
+		1-(1-alpha)/2.0, prior, true);
+
+	std::reverse(backward.begin(), backward.end());
+
+	// Average the two passes to cancel out lag (except at the beginning and
+	// end). Strictly speaking, the -1 regions should be done with the actual
+	// alpha (not halved towards one) with a starting value taken from the
+	// first point where both forward and backward datapoints exist. But
+	// that's overkill.
+
+	std::vector<double> appx_clock(fluxes.size());
+
+	for (size_t i = 0; i < appx_clock.size(); ++i) {
+		if (fwd[i] == -1) {
+			appx_clock[i] = backward[i];
+			continue;
+		}
+
+		if (backward[i] == -1) {
+			appx_clock[i] = fwd[i];
+			continue;
+		}
+
+		appx_clock[i] = (backward[i] + fwd[i]) / 2.0; 
 	}
 
 	return appx_clock;
