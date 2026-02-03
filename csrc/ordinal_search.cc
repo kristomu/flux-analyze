@@ -174,8 +174,48 @@ template<typename T> int min_vec(const T & x) {
 	return *std::min_element(x.begin(), x.end());
 }
 
+// QUICK HACK
+
+double get_error(double clock,
+		std::vector<int>::const_iterator flux_start,
+		std::vector<int>::const_iterator flux_end) {
+
+	double error_out = 0;
+	size_t count = 0;
+
+	for (std::vector<int>::const_iterator pos = flux_start;
+		pos != flux_end; ++pos) {
+		// We'll model the nonlinearity like this:
+		//		- There's always half a clock's delay before anything happens.
+		//		- Then one zero corresponds to half a clock more, two zeroes is
+		//			two halves more, and three zeroes is three, and so on.
+
+		int flux_delay = *pos;
+		int half_clocks = round((flux_delay*2)/clock);
+
+		// Subtract the constant half-clock offset of one, then round the next
+		// to get the number of zeroes.
+		int zeroes = std::max(0, half_clocks-1);
+
+		// Update Euclidean error.
+		double error_term = flux_delay - half_clocks * clock/2.0;
+		error_out += error_term * error_term;
+		++count;
+
+		// Ignore RR -- treat it as noise (as the reference VHDL code
+		// does). Better might be to just add the delay to the next
+		// term. Maybe do that later.
+		if (zeroes == 0) { continue; }
+	}
+
+	error_out = std::sqrt(error_out / count);
+
+	return error_out;
+}
+
 double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	std::vector<int>::const_iterator match_start,
+	std::vector<int>::const_iterator next_match_start,
 	std::vector<int>::const_iterator fluxes_end) {
 
 	auto match_pos = match_start;
@@ -271,7 +311,28 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	// inequality wouldn't work.
 	if (clock_lower < clock_upper) {
 		// Empirical weighting, seems to work well.
-		return 0.6 * clock_lower + 0.4 * clock_upper;
+		//return 0.6 * clock_lower + 0.4 * clock_upper;
+		// Quick and dirty error optimization, fix later
+		// It does seem to improve things. Since this is a local
+		// optimization, we can use Fibonacci/ternary search later.
+		double record = 1000;
+		double recordholder = clock_lower;
+		int steps = 100;
+
+		for (int i = 0; i < steps; ++i) {
+			// The +1 makes sure we never hit clock_lower or clock_upper exactly.
+			double mix = clock_lower + (i+1) * (clock_upper-clock_lower)/(steps+1);
+			double err = get_error(mix,
+				match_start, next_match_start);
+			if (err < record) {
+				record = err;
+				recordholder = mix;
+			}
+			std::cout << "Clock = " << mix << " error = " << err << std::endl;
+		}
+		std::cout << "lower: " << clock_lower << " record: " 
+			<< recordholder << " upper: " << clock_upper << std::endl;
+		return recordholder;
 	} else {
 		// There are distinct bands but it's not possible to fit
 		// a single clock to it. This needs Python-style manually
@@ -300,7 +361,9 @@ std::vector<match_with_clock> get_flux_matches(
 	std::vector<match_with_clock> out;
 	match_with_clock true_match;
 
-	for (const search_result & result: possible_matches) {
+	for (size_t i = 0; i < possible_matches.size(); ++i) {
+
+		search_result result = possible_matches[i];
 		// Due to various effects, an ordinal match at x corresponds
 		// to a flux match at x - offset. Get this offset.
 		// See get_ordinal_search_sequence for more info.
@@ -333,8 +396,15 @@ std::vector<match_with_clock> get_flux_matches(
 			amended_preamble.push_back(1);
 		}
 
+		std::vector<int>::const_iterator next_match_start =
+			flux_transitions.end();
+		if (i+1 < possible_matches.size()) {
+			next_match_start = flux_transitions.begin() + possible_matches[i+1].idx - offset;
+		}
+
 		double clock =	get_clock(amended_preamble,
 			flux_transitions.begin() + result.idx - offset,
+			next_match_start,
 			flux_transitions.end());
 
 		if (clock < 0) {
