@@ -6,7 +6,7 @@
 #include <set>
 
 #include "address_marks.h"
-#include "pulse_train.h"
+#include "pulse_train/pulse_train.h"
 #include "sector_data.h"
 #include "preambles.h"
 

@@ -1,5 +1,5 @@
 #pragma once
-#include "pulse_train.h"
+#include "pulse_train/pulse_train.h"
 #include "sector_data.h"
 #include <stdexcept>
 #include <list>

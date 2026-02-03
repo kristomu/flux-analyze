@@ -23,7 +23,7 @@ add_executable(${PROG_NAME}
 	main.cc
 	rabin_karp/rabin_karp.cc
 	flux_record.cc
-	pulse_train.cc
+	pulse_train/classical_decoders.cc
 	ordinal_search.cc
 	sector_data.cc
 	preambles.cc

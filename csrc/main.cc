@@ -15,7 +15,9 @@
 
 #include "flux_record.h"
 
-#include "pulse_train.h"
+#include "pulse_train/classical_decoders.h"
+#include "pulse_train/pulse_train.h"
+
 #include "ordinal_search.h"
 #include "sector_data.h"
 #include "tools.h"
@@ -140,6 +142,12 @@ double find_approximate_period(const std::vector<int> & in_fluxes) {
 // Perform brute-force adaptive (PLL/dewarping) decoding of flux streams.
 // This returns the decoded tracks structure for the timeline.
 
+// XXX: I shouldn't brute-force like this. It can potentially generate a
+// ton of ever-so-slightly different solutions, and CRC-16 isn't strong
+// enough to filter them all out.
+
+// It's much better to do something principled like DP.
+
 decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	double min_alpha, double max_alpha, double stepsize,
 	bool verbose) {
@@ -163,6 +171,8 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	decoded_tracks decoded;
 
 	size_t sectors = 0;
+
+	historical_EWMA_decoder dewarp_decoder;
 
 	for (double alpha = min_alpha; alpha <= max_alpha; alpha += stepsize) {
 		std::cout << "Dewarping: alpha = " << alpha << std::endl;
@@ -217,11 +227,14 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 					<< alpha;
 				}
 
+			dewarp_decoder.set_alpha(alpha);
+			dewarp_decoder.set_initial_clock(ts.clock_value);
+
 			// I'd really like get_mfm_train to automatically
 			// handle the translation between levels on demand...
 			// something more lazy perhaps.
-			ts.mfm_train = get_MFM_train_dewarp_historical(ts.clock_value,
-					ts.flux_data, alpha, error);
+			ts.mfm_train = dewarp_decoder.get_MFM_train(
+				ts.flux_data, error);
 			ts.sec_data = decode_MFM_train(ts.mfm_train,
 				ts.preamble_offset, ts.mfm_train.data.size());
 
@@ -240,7 +253,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 		// TODO: Don't be so chatty both times about what we've
 		// decoded. Probably needs a decoder redesign.
 
-		IBM_decoder.decode(floppy_line, decoded, false);
+		IBM_decoder.decode(floppy_line, decoded, verbose);
 
 		// Restore any bad decodes that got turned into unknowns.
 		// This is very iffy and needs a proper redesign; for that
@@ -319,6 +332,11 @@ decoded_tracks decode_floppy(std::string flux_filename) {
 
 	for (const flux_record & f: flux_records) {
 
+		// There used to be a track dump hack here that was used to check
+		// warping by plotting in Python, but it was a real hack, so it's
+		// been removed.
+		// TODO: Implement a better visualization method.
+
 		decoded_tracks decoded;
 		std::vector<int> fluxes = f.fluxes;
 		decoder IBM_decoder;
@@ -390,11 +408,14 @@ decoded_tracks decode_floppy(std::string flux_filename) {
 
 			double error;
 
+			constant_clock_decoder c_MFM_decoder;
+
 			next.clock_value = m.estimated_clock;
 			next.flux_data = std::vector<int>(f.fluxes.begin() + start_idx,
 				f.fluxes.begin() + end_idx);
-			next.mfm_train = get_MFM_train(next.clock_value,
-					next.flux_data, error);
+			c_MFM_decoder.set_clock(next.clock_value);
+			next.mfm_train = c_MFM_decoder.get_MFM_train(
+				next.flux_data, error);
 
 			 std::cout << " -- Error: " << error << std::endl;
 

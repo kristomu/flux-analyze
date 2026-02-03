@@ -48,23 +48,3 @@ class MFM_train_data {
 			return *this;
 		}
 };
-
-// Turn a flux record vector into an MFM pulse train by comparing the distance
-// between flux reversals. The error_out double is set to a badness-of-fit
-// value: the higher the worse.
-
-MFM_train_data get_MFM_train(double clock,
-		const std::vector<int> & fluxes, size_t start_pos,
-		size_t end_pos, double & error_out);
-
-MFM_train_data get_MFM_train(double clock,
-		const std::vector<int> & fluxes, double & error_out);
-
-double get_MFM_train_error(double clock, const std::vector<int> & fluxes);
-
-MFM_train_data get_MFM_train_dewarp(double clock,
-	const std::vector<int> & fluxes, double alpha, double & RMSE_out);
-
-MFM_train_data get_MFM_train_dewarp_historical(double clock,
-		const std::vector<int> & fluxes, double alpha,
-		double & RMSE_out);

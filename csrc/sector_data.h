@@ -1,7 +1,7 @@
 #pragma once
 
 #include <vector>
-#include "pulse_train.h"
+#include "pulse_train/pulse_train.h"
 
 // Level two.
 

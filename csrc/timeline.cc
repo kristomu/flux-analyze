@@ -1,4 +1,3 @@
-#include "pulse_train.h"
 #include "sector_data.h"
 #include "timeline.h"
 
