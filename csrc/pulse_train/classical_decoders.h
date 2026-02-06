@@ -2,8 +2,6 @@
 
 #include "flux_decoder.h"
 
-// TODO: Insert the ones from pulse_train.cc here.
-
 class constant_clock_decoder: public pulse_decoder {
 	private:
 		double clock;
