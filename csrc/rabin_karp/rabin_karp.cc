@@ -93,6 +93,10 @@ std::vector<search_result> rabin_karp::find_matches(
 
 	std::vector<search_result> matches;
 
+	if (max_matches == 0) {
+		return matches;
+	}
+
 	// The boundary conditions for this loop are tricky. When we
 	// enter the loop with some value of i, that means that every
 	// byte before i has been hashed. So a needle whose last byte
@@ -127,7 +131,7 @@ std::vector<search_result> rabin_karp::find_matches(
 				matches.push_back(search_result(start_pos,
 					needle_ref->ID));
 
-				if (num_matches++ == max_matches) {
+				if (++num_matches == max_matches) {
 					return matches;
 				}
 			}
@@ -202,7 +206,7 @@ void test_rabin_karp() {
 	rabin_karp rk(str_to_vec(needle), 0);
 	if (rk.find_matches(str_to_vec(haystack)).size() > 0) {
 		throw std::logic_error("Rabin-Karp test: Found a match "
-			"where nowhere was expected");
+			"where none was expected");
 	}
 
 	// Test matching something.
@@ -212,6 +216,13 @@ void test_rabin_karp() {
 	if (!vec_eq(rk.find_matching_indices(str_to_vec(haystack)), {0, 24, 45})) {
 		throw std::logic_error("Rabin-Karp test: unexpected output"
 			" from three match haystack.");
+	}
+
+	for (size_t i = 0; i < 3; ++i) {
+		if (rk.find_matches(str_to_vec(haystack), i).size() != i) {
+			throw std::logic_error("Rabin-Karp test: unexpected length"
+				" of three match haystack with max number of matches specified.");
+		}
 	}
 
 	// Test needles that are too large to fit in a hash_int.
