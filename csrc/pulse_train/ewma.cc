@@ -99,6 +99,9 @@ MFM_train_data decode_by_clock(const std::vector<int> & fluxes,
 
 	std::vector<size_t> pulse_train;
 
+	train.data.push_back(1);
+	train.flux_indices.push_back(starting_offset);
+
 	for (size_t i = 0; i < fluxes.size(); ++i) {
 		int observed_pulse_delay = fluxes[i];
                 

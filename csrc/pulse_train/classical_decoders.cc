@@ -27,6 +27,13 @@
 // reversal having been erased. But I'm not going to do recovery before I've got
 // this working on normal images.
 
+// TODO: It might be useful to create an "explicit clock vector decoder" that
+// takes a list of clock values and creates an MFM_train_data object based on
+// it. Then constant-clock is trivial and the "modern" decoders are fairly
+// easy too. Only problem is that it's creating and destroying a bunch of
+// temporary vectors when not doing that would be faster. Optimize later,
+// perhaps.
+
 // Level one:
 
 MFM_train_data constant_clock_decoder::get_MFM_train(
@@ -34,6 +41,9 @@ MFM_train_data constant_clock_decoder::get_MFM_train(
 		size_t end_pos, double & error_out) const {
 
 	MFM_train_data train;
+
+	train.data.push_back(1);
+	train.flux_indices.push_back(start_pos);
 
 	error_out = 0;
 
@@ -92,6 +102,9 @@ MFM_train_data orig_EWMA_causal_clock_decoder::get_MFM_train(
 
 	MFM_train_data train;
 
+	train.data.push_back(1);
+	train.flux_indices.push_back(0);
+
 	RMSE_out = 0;
 	double bias = 0;
 
@@ -138,6 +151,9 @@ MFM_train_data historical_EWMA_decoder::get_MFM_train(
 
 	MFM_train_data train;
 	
+	train.data.push_back(1);
+	train.flux_indices.push_back(0);
+
 	RMSE_out = 0;
 	double estimated_half_clock = initial_clock / 2;
 
