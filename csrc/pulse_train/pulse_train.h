@@ -47,4 +47,34 @@ class MFM_train_data {
 
 			return *this;
 		}
+
+		// Split a subsection of the MFM train data into its own MFM train data.
+		// It will split on whole flux transitions because that's what decode_MFM_
+		// train and timelines expect (there's a lot of ugly code here), and
+		// return the offset to the actual start that was specified.
+		MFM_train_data split(size_t start_idx_train, size_t end_idx_train,
+			size_t & out_offset) {
+			MFM_train_data out;
+
+			out_offset = 0;
+
+			size_t start_idx_flux = flux_indices[start_idx_train];
+
+			// Is this ever used???
+
+			/*while(start_idx_train != 0 &&
+				flux_indices[start_idx_train-1] == start_idx_flux) {
+				++out_offset;
+				--start_idx_train;
+			}*/
+
+			out.data = MFM_data_t(data.begin() + start_idx_train,
+				data.begin() + end_idx_train);
+
+			for (size_t i = start_idx_train; i < end_idx_train; ++i) {
+				out.flux_indices.push_back(flux_indices[i]-start_idx_flux);
+			}
+
+			return out;
+		}
 };

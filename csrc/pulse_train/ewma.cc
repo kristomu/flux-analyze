@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <iostream>
 
 #include "ewma.h"
 
@@ -92,12 +93,9 @@ MFM_train_data decode_by_clock(const std::vector<int> & fluxes,
 
 	MFM_train_data train;
 
-	// Beware: this doesn't teka parity into account.
+	// Beware: this doesn't take parity into account.
 	// It probably works most of the time here because
 	// the outer method starts decoding at an OOB marker.
-
-	train.data.push_back(1);
-	train.flux_indices.push_back(starting_offset);
 
 	std::vector<size_t> pulse_train;
 
@@ -113,6 +111,8 @@ MFM_train_data decode_by_clock(const std::vector<int> & fluxes,
 			train.data.push_back(0);
 			train.flux_indices.push_back(i + starting_offset);
 		}
+		train.data.push_back(1);
+		train.flux_indices.push_back(i + starting_offset);
 	}
 
 	return train;

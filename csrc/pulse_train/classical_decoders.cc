@@ -35,9 +35,6 @@ MFM_train_data constant_clock_decoder::get_MFM_train(
 
 	MFM_train_data train;
 
-	train.data.push_back(1);
-	train.flux_indices.push_back(start_pos);
-
 	error_out = 0;
 
 	for (size_t i = start_pos; i < end_pos; ++i) {
@@ -95,9 +92,6 @@ MFM_train_data orig_EWMA_causal_clock_decoder::get_MFM_train(
 
 	MFM_train_data train;
 
-	train.data.push_back(1);
-	train.flux_indices.push_back(0);
-
 	RMSE_out = 0;
 	double bias = 0;
 
@@ -144,9 +138,6 @@ MFM_train_data historical_EWMA_decoder::get_MFM_train(
 
 	MFM_train_data train;
 	
-	train.data.push_back(1);
-	train.flux_indices.push_back(0);
-
 	RMSE_out = 0;
 	double estimated_half_clock = initial_clock / 2;
 
