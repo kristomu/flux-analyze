@@ -16,6 +16,7 @@
 #include "flux_record.h"
 
 #include "pulse_train/classical_decoders.h"
+#include "pulse_train/ewma.h"
 #include "pulse_train/pulse_train.h"
 
 #include "ordinal_search.h"
@@ -23,7 +24,8 @@
 #include "tools.h"
 
 #include "timeline.h"
-#include "decoder.cc"
+#include "decoder.h"
+#include "full_decoder.h"
 
 #include "crc16.h"
 
@@ -228,7 +230,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 				}
 
 			dewarp_decoder.set_alpha(alpha);
-			dewarp_decoder.set_initial_clock(ts.clock_value);
+			//dewarp_decoder.set_initial_clock(ts.clock_value);
 
 			// I'd really like get_mfm_train to automatically
 			// handle the translation between levels on demand...
@@ -300,183 +302,19 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	return decoded;
 }
 
-decoded_tracks decode_floppy(std::string flux_filename) {
-
-	std::vector<flux_record> flux_records = 
-		get_flux_record(flux_filename, true);
-
-	// Some preliminary testing goes here.
-
-	// Quick and dirty ordinal search experiments
-	IBM_preamble preamble_info;
-	rabin_karp ordinal_preamble_search(
-		preamble_info.ordinal_A1_sequence.needle, PREAMBLE_ID_A1);
-	ordinal_preamble_search.add(
-		preamble_info.ordinal_C2_sequence.needle, PREAMBLE_ID_C2);
-
-	rabin_karp preamble_search(preamble_info.A1_sequence,
-		PREAMBLE_ID_A1);
-	preamble_search.add(preamble_info.C2_sequence,
-		PREAMBLE_ID_C2);
-
-	decoded_tracks all_decoded_tracks;
-	size_t last_track = 0;
-
-	if (flux_records.empty()) {
-		std::cout << "Error: flux database contains no data!" << std::endl;
-		return all_decoded_tracks;
-	}
-
-	// TODO: Handle multiple tracks, perhaps by implementing a plus
-	// operator for decoded_tracks.
-
-	for (const flux_record & f: flux_records) {
-
-		// There used to be a track dump hack here that was used to check
-		// warping by plotting in Python, but it was a real hack, so it's
-		// been removed.
-		// TODO: Implement a better visualization method.
-
-		decoded_tracks decoded;
-		std::vector<int> fluxes = f.fluxes;
-		decoder IBM_decoder;
-
-		std::cout << "Checking track " << f.track << ", side " << f.side << std::endl;
-		last_track = std::max(last_track, (size_t)f.track);
-
-		// Get locations/offsets into the flux where a magic preamble (A1A1A1
-		// or C2C2C2) might be found.
-
-		// Using a limited search strategy would cut the runtime to 62% for
-		// uncorrupted floppies, but I don't know if it's worth the complexity,
-		// so I won't do it (yet).
-
-		std::vector<char> ordinal_flux = get_delta_coding(fluxes, true);
-		std::vector<search_result> ordinal_locations =
-			ordinal_preamble_search.find_matches(ordinal_flux);
-		std::vector<match_with_clock> matches =
-			get_flux_matches(fluxes, ordinal_locations,
-				preamble_info);
-
-		timeline floppy_line;
-		// A linear sequence made up of each decoded chunk concatenated
-		// in order.
-		timeslice next;
-
-		// We need to include a first timeslice covering everything
-		// from the start of the flux record to the first match, even
-		// if we don't know what's in there. This is necessary to make
-		// flux indices in the timeline line up with those in the flux
-		// record we're constructing it from.
-		timeslice first;
-
-		if (matches.size() > 0 && matches[0].match_location > 0) {
-			first.flux_data = std::vector<int>(f.fluxes.begin(),
-				f.fluxes.begin() + matches[0].match_location);
-			floppy_line.insert(first);
-		}
-
-		for (size_t j = 0; j < matches.size(); ++j) {
-			// We want to decode everything from this preamble to the
-			// next one.
-			match_with_clock m = matches[j];
-
-			size_t start_idx = matches[j].match_location,
-				end_idx = fluxes.size();
-
-			if (j < matches.size()-1) {
-				end_idx = matches[j+1].match_location;
-			}
-
-			// HACK: If the matched area is too short for a preamble, then
-			// it's a false positive. Signal as such; it's mostly irrelevant
-			// now due to non-overlapping search terms. However, it could
-			// still theoretically happen.
-			// I need some way to thread this through the filter_matches...
-			// that it should be able to say "no, this must be truncated",
-			// so I don't have to rely on every preamble being the same length
-			// as I'm doing here.
-			if (end_idx - start_idx < preamble_info.get_preamble_by_ID(0).size()) {
-				std::cout << "Too short!\n";
-				next.status = TS_TRUNCATED;
-				floppy_line.insert(next);
-				continue;
-			}
-			std::cout << "Found " << m.match_location << " with clock " <<
-				m.estimated_clock << " (interval " << start_idx << "-" <<
-				end_idx << ")";
-
-			double error;
-
-			constant_clock_decoder c_MFM_decoder;
-
-			next.clock_value = m.estimated_clock;
-			next.flux_data = std::vector<int>(f.fluxes.begin() + start_idx,
-				f.fluxes.begin() + end_idx);
-			c_MFM_decoder.set_clock(next.clock_value);
-			next.mfm_train = c_MFM_decoder.get_MFM_train(
-				next.flux_data, error);
-
-			 std::cout << " -- Error: " << error << std::endl;
-
-			// HACK HACK: Find the offset from the start of the MFM train
-			// to the start of the preamble. (TODO: lots of optimization
-			// can be done here. Not yet though.)
-			std::vector<search_result> preamble_locations =
-				preamble_search.find_matches(next.mfm_train.data, 1);
-			if (preamble_locations.empty()) {
-				// This happens when the clock estimate is wrong, which
-				// shouldn't happen. (We should be signaling errors earlier
-				// in ordinal_search.)
-				throw std::logic_error("Found preamble but then couldn't!"
-					" What's going on?");
-			}
-			next.status = TS_PREAMBLE_FOUND;
-			next.preamble_offset = m.offset;
-
-			next.sec_data = decode_MFM_train(next.mfm_train,
-				next.preamble_offset, next.mfm_train.data.size());
-
-			floppy_line.insert(next);
-
-			if (floppy_line.timeslices.rbegin()->flux_data_begin != start_idx) {
-				throw std::logic_error("Flux index start index mismatch. "
-					"Was " + 
-					itos(floppy_line.timeslices.rbegin()->flux_data_begin) +
-					" but should be " + itos(start_idx));
-			}
-		}
-
-		IBM_decoder.decode(floppy_line, decoded, true);
-
-		// Do a brute force attempt to decode bad chunks that we haven't
-		// got yet. This is very slow and could be sped up considerably with
-		// some redesign, but the point is that we get a surprising amount
-		// of corrupted chunks decoded "for free" this way.
-
-		// Usually high alpha (less smoothing) is more promising, therefore
-		// we only do a cursory check of the lower alpha parameters.
-		// Known bug: checking alphas in reverse (from high to low) doesn't work.
-		// I have no idea why.
-		double stepsize = 0.005;
-		decoded = decode_brute_dewarp(floppy_line, stepsize, 0.5, 0.1, false);
-		decoded = decode_brute_dewarp(floppy_line, 0.5, 1-stepsize,
-			stepsize, false);
-
-		IBM_decoder.dump_sector_files(floppy_line,
-			"check_sectors/t" + itos(f.track) + "h" + itos(f.side));
-
-		all_decoded_tracks += decoded;
-	}
-
-	return all_decoded_tracks;
-}
-
 int main(int argc, char ** argv) {
 	test_rabin_karp();
 	test_crc16();
 
 	decoded_tracks all_decoded_images;
+
+	ordinal_full_decoder ofd;
+
+	// Example use of the once-through full decoder.
+	std::shared_ptr<causal_EWMA_clock_decoder> p_decoder =
+		std::make_shared<causal_EWMA_clock_decoder>();
+	p_decoder->set_alpha(0.05);
+	once_through_decoder simpler_decoder(p_decoder);
 
 	if (argc < 2) {
 		std::cout << "Usage: " << argv[0] << " <flux image> ... <flux image>\n";
@@ -488,7 +326,8 @@ int main(int argc, char ** argv) {
 		for (int i = 1; i < argc; ++i) {
 			std::string flux_filename = argv[1];
 			std::cout << "Analyzing flux file " << flux_filename << "\n";
-			all_decoded_images += decode_floppy(flux_filename);
+			// or once_through_decoder.decode_floppy()...
+			all_decoded_images += ofd.decode_floppy(flux_filename);
 		}
 	}
 
