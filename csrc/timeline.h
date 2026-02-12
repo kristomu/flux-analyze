@@ -28,12 +28,15 @@
 // we'll need anyway to distinguish timeslices with preambles from
 // those without.
 
-enum slice_status {TS_UNKNOWN,
-	TS_PREAMBLE_FOUND,
-	TS_DECODED_UNKNOWN, // unknown preambles, say
-	TS_DECODED_BAD,
-	TS_DECODED_OK,
-	TS_TRUNCATED};
+enum slice_status {
+	TS_UNKNOWN = 0,
+	TS_PREAMBLE_FOUND = 1,
+	TS_DECODED_UNKNOWN = 2, // unknown preambles, say
+	TS_DECODED_BAD = 3,
+	TS_DECODED_OK = 4,
+	TS_TRUNCATED = 5};
+
+const int NUM_TS_STATUSES = 6;
 
 // When splitting a timeslice, we have to determine which of the parts
 // gets to retain its status.
@@ -147,4 +150,18 @@ class timeline {
 		// setters. Eugh.
 		// The positions are really just memoized data.
 		void update(std::list<timeslice>::iterator & to_update);
+
+		// Get the number of flux transitions covered by each
+		// status. This is used as a crude performance indicator.
+		// It may be slightly inaccurate if there are overlaps between
+		// timeslices, e.g. timeslice 0 using the first two bits of a
+		// 0001 sequence, and timeslice 1 using the last two.
+		// The alternative (using the number of bits, i.e. MFM train size)
+		// would make the values depend on how the fluxes were decoded,
+		// which makes them much harder to compare.
+
+		std::vector<size_t> get_covered_flux_sizes() const;
+
+		// Get the fraction of transitions covered by TS_DECODED_OK.
+		double get_good_fraction() const;
 };

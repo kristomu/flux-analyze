@@ -3,6 +3,8 @@
 
 #include <assert.h>
 
+#include <numeric>
+
 void timeline::insert(timeslice & next, slice_id_t ID) {
 	// Enforce the uniqueness constraint: we can't have two
 	// with the same ID.
@@ -163,4 +165,31 @@ void timeline::update(std::list<timeslice>::iterator & to_update) {
 		++next;
 		++last;
 	}
+}
+
+std::vector<size_t> timeline::get_covered_flux_sizes() const {
+	std::vector<size_t> num_flux_delays(NUM_TS_STATUSES, 0);
+
+	for (const timeslice & ts: timeslices) {
+		// Counting the actual sum of flux delays would indicate
+		// the fraction of the actual track that we've assigned
+		// the status in question, and may thus be seen as more
+		// accurate.
+		/*num_flux_delays[ts.status] += ts.flux_data_end() -
+			ts.flux_data_begin;*/
+		num_flux_delays[ts.status] += std::accumulate(ts.flux_data.begin(),
+				ts.flux_data.end(), 0);
+	}
+
+	return num_flux_delays;
+}
+
+double timeline::get_good_fraction() const {
+	std::vector<size_t> num_flux_delays = get_covered_flux_sizes();
+
+	double covered_by_good = num_flux_delays[TS_DECODED_OK];
+	double cumulative_timeline_length = std::accumulate(
+		num_flux_delays.begin(), num_flux_delays.end(), 0);
+
+	return covered_by_good / cumulative_timeline_length;
 }
