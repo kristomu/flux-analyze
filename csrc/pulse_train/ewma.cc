@@ -139,8 +139,15 @@ MFM_train_data causal_EWMA_clock_decoder::get_MFM_train(
 	std::vector<int> cropped(fluxes.begin()+start_pos,
 			fluxes.begin()+end_pos);
 
-	std::vector<double> clock_values = causal_get_approximate_clock(
-		cropped, alpha);
+	std::vector<double> clock_values;
+
+	if (is_initial_clock_set()) {
+		clock_values = causal_get_approximate_clock(cropped,
+			alpha, initial_clock, true);
+	} else {
+		clock_values = causal_get_approximate_clock(
+			cropped, alpha);
+	}
 
 	// Use the last value as a prior to fill in the first values.
 	// (This is kind of dirty.)
