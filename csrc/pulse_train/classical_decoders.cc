@@ -145,6 +145,199 @@ MFM_train_data orig_EWMA_causal_clock_decoder::get_MFM_train(
 // The only difference is: the center for three half-clocks is at 3x
 // a half clock, not 32/11 x.
 
+// Maybe not faithful enough?
+MFM_train_data historical_EWMA_decoder::get_MFM_train(
+		const std::vector<int> & fluxes, size_t start_pos,
+		size_t end_pos, double & RMSE_out) const {
+
+	MFM_train_data train;
+	
+	train.data.push_back(1);
+	train.flux_indices.push_back(0);
+
+	RMSE_out = 0;
+	double estimated_half_clock = initial_clock / 2;
+
+	/*
+	-- length limits
+	variable one_imp_low  : integer range 0 to 1000 := 0;
+	variable one_imp_nom  : integer range 0 to 1000 := 0;
+	variable one_imp_high : integer range 0 to 1000 := 0;
+	 
+	variable two_imp_low  : integer range 0 to 1000 := 0;
+	variable two_imp_nom  : integer range 0 to 1000 := 0;
+	variable two_imp_high : integer range 0 to 1000 := 0;
+	 
+	variable tre_imp_low  : integer range 0 to 1000 := 0;
+	variable tre_imp_nom  : integer range 0 to 1000 := 0;
+	variable tre_imp_high : integer range 0 to 1000 := 0;
+	*/
+
+	int one_imp_low, one_imp_nom, one_imp_high;
+	int two_imp_low, two_imp_nom, two_imp_high;
+	int tre_imp_low, tre_imp_nom, tre_imp_high;
+	 
+	/*-- delay:
+	variable old_delay    : integer range 0 to 1000 := 0;
+	variable new_delay    : integer range 0 to 1000 := 0;
+	 
+	variable length_snap  : integer range 0 to 1000 := 0;
+
+	*/
+
+	int old_delay, new_delay, length_snap;
+	int delay = fluxes[start_pos]; // initial clock estimate ???
+
+	for (size_t i = start_pos; i < end_pos; ++i) {
+		/*
+		begin
+	 
+	    	if (rdata_pulse = '1' and rdata_pulse'event ) then
+	 
+	        if (read_front /= read_back and read_cancel = '0') then
+	    */
+
+		// pulse edge, store delay in a variable
+		int old_delay = delay;
+
+		one_imp_low = old_delay - old_delay / 4;
+		one_imp_nom = old_delay;
+		one_imp_high = old_delay + old_delay / 4;
+
+		two_imp_low = old_delay + old_delay / 4;
+		two_imp_nom = old_delay + old_delay / 2;
+		two_imp_high = old_delay + old_delay - old_delay / 4;
+
+		tre_imp_low = old_delay + old_delay - old_delay / 4;
+		tre_imp_nom = old_delay + old_delay;
+		tre_imp_high = old_delay + old_delay + old_delay / 4;
+
+		int length = fluxes[i]; // is this what length is ???
+
+		length_snap = length; // <--- ????
+
+		/*
+	            -- process MFM bits
+	            if (skip > 0) then
+	                skip <= skip - 1;
+	            elsif (length_snap < delay/4) then
+	                -- too small
+	            elsif (length_snap < one_imp_high) then
+	                -- 1us between two pulses
+	                new_delay := old_delay - (old_delay - length_snap)/2;
+	                mfm_type <= 2;
+	                mfm_front <= mfm_front + 1;
+	            elsif (length_snap < two_imp_high) then
+	                -- 1.5us between two pulses
+	                mfm_type <= 3;
+	                mfm_front <= mfm_front + 1;
+	                new_delay := old_delay - (old_delay-(length_snap+length_snap)/4-
+	                                (length_snap+length_snap)/8 +
+	                                (length_snap+length_snap)/32)/2;
+	            elsif (length_snap < delay+delay+delay) then
+	                -- 2us between two pulses
+	                mfm_type <= 4;
+	                mfm_front <= mfm_front + 1;
+	                new_delay := old_delay - (old_delay - length_snap/2)/2;
+	            else
+	                -- too long duration between pulses
+	                skip <= 5;
+	            end if;
+	    */
+
+	    // Not entirely sure if this is what's going on
+	    // "skip" is just outputting a zero, I think
+
+	    bool emit = false;
+	    int mfm_type = -1;
+	    int skip = 0;
+	    new_delay = delay;
+	    int nd_simplified;
+
+	    if (length_snap < delay/4) {
+	    	// nothing
+	    } else if (length_snap < one_imp_high) { // 1 us
+	    	new_delay = old_delay - (old_delay - length_snap) / 2;
+	    	mfm_type = 2;
+	    	emit = true;
+	    } else if (length_snap < two_imp_high) { // 1.5 us
+	    	emit = true;
+	    	mfm_type = 3;
+	    	// WTF?
+	    	new_delay = old_delay - (old_delay-(length_snap+length_snap)/4-
+	                                (length_snap+length_snap)/8 +
+	                                (length_snap+length_snap)/32)/2;
+	    	nd_simplified = old_delay - (old_delay-
+    								length_snap/2-
+	                                length_snap/4 +
+	                                length_snap/16)/2;
+	    	if (nd_simplified != new_delay) {
+	    		std::cout << new_delay << "\t" << nd_simplified << "\n";
+	    		throw std::logic_error("oops");
+	    	}
+	    } else if (length_snap < delay + delay + delay) { // 2 us
+	    	emit = true;
+	    	mfm_type = 4;
+	    	new_delay = old_delay - (old_delay - length_snap/2)/2;
+	    } else { // Too long a duration
+	    	skip = 5; // ???
+	    }
+
+	    if (emit) {
+	    	for (int j = 0; j < mfm_type-1; ++j) {
+				train.data.push_back(0);
+				train.flux_indices.push_back(i);
+			}
+			train.data.push_back(1);
+			train.flux_indices.push_back(i);
+	    }
+
+	    /*
+	 
+	            -- filter and update delay:
+	            if (new_delay > old_delay + old_delay/8) then
+	                delay <= old_delay + old_delay/8;
+	            elsif (new_delay < old_delay - old_delay/8) then
+	                delay <= old_delay - old_delay/8;
+	            else
+	                delay <= new_delay;
+	            end if;
+	    */
+		if (new_delay > old_delay + old_delay / 8) {
+			delay = old_delay + old_delay / 8;
+		} else if ( new_delay < old_delay - old_delay / 8) {
+			delay = old_delay - old_delay / 8;
+		} else {
+			delay = new_delay;
+		}
+	}
+
+	RMSE_out = std::sqrt(RMSE_out / (end_pos - start_pos));
+
+	return train;
+
+		/*
+	            -- initialize length for next pulse
+	            reset_front <= reset_front + 1;
+	 
+	        else
+	 
+	            -- initialize skip to 1
+	            skip       <= 1;
+	            -- initialize delay to 100
+	            delay      <= 100;
+	 
+	        end if;
+	 
+	    end if;
+	 
+	end process;
+	*/
+
+}
+
+
+/*
 MFM_train_data historical_EWMA_decoder::get_MFM_train(
 		const std::vector<int> & fluxes, size_t start_pos,
 		size_t end_pos, double & RMSE_out) const {
@@ -196,3 +389,4 @@ MFM_train_data historical_EWMA_decoder::get_MFM_train(
 
 	return train;
 }
+*/
