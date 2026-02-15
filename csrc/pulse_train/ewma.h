@@ -23,6 +23,9 @@ class causal_EWMA_clock_decoder : public pulse_decoder {
 		double alpha;
 		double initial_clock = -1;
 
+		bool ignore_lower = false;
+		bool clamp = true;
+
 		bool is_initial_clock_set() const { return initial_clock > 0; }
 
 	public:
@@ -45,6 +48,14 @@ class causal_EWMA_clock_decoder : public pulse_decoder {
 
 		void clear_initial_clock() {
 			initial_clock = -1;
+		}
+
+		void set_ignore_lower(bool ignore_lower_in) {
+			ignore_lower = ignore_lower_in;
+		}
+
+		void set_clamp(bool clamp_in) {
+			clamp = clamp_in;
 		}
 
 		causal_EWMA_clock_decoder() : causal_EWMA_clock_decoder(0.5, 24) {}

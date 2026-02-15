@@ -3,9 +3,26 @@
 
 #include "ewma.h"
 
+// ignore_lower: if true, skips any transition that
+// rounds off to zero number of zero bits, instead of
+// outputting a single zero bit.
+//		The default is false.
+
+// clamp: Force a maximum of three zero bits.
+//		The default is true.
+
+// Something is also weird - not giving a prior clock makes
+// this behave very strangely, but ordinary floppy drives
+// are entirely able to recover the clock without any priors.
+// TODO: Find out why.
+
+// "clock" value that indicates the flux should be skipped.
+const int CLOCK_OOB_DO_SKIP = -1;
+
 std::vector<double> causal_get_approximate_clock(
 	const std::vector<int> & fluxes, double alpha,
-	double clock_prior, bool use_prior) {
+	double clock_prior, bool use_prior, bool ignore_lower,
+	bool clamp) {
 
 	std::vector<double> appx_clock;
 
@@ -19,23 +36,45 @@ std::vector<double> causal_get_approximate_clock(
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
 		size_t observed_pulse_delay = fluxes[i];
-		
-		size_t zero_bits = round(
-			2.0 * observed_pulse_delay / mean_clock) - 1;
-		zero_bits = std::min(3, std::max(1, (int)zero_bits));
 
-		double new_clock = 2 * observed_pulse_delay / (zero_bits + 1);
+		int zero_bits = round(
+			2.0 * observed_pulse_delay / mean_clock) - 1;
+
+		if (zero_bits < 1 && ignore_lower) {
+			appx_clock.push_back(CLOCK_OOB_DO_SKIP);
+			continue;
+		}
+
+		if (clamp) {
+			zero_bits = std::min(3, std::max(1, zero_bits));
+		}
+
+		double new_clock = mean_clock;
+
+		if (zero_bits > 0) {
+			new_clock = 2 * observed_pulse_delay / (zero_bits + 1.0);
+		}
 
 		mean_clock = (1-alpha) * mean_clock + alpha * new_clock;
 
 		if (i < warmup_period) {
 			appx_clock.push_back(-1);
 		} else {
-			appx_clock.push_back(mean_clock);
+			// Push the clock we actually used to decode.
+			appx_clock.push_back(new_clock);
 		}
 	}
 
 	return appx_clock;
+}
+
+std::vector<double> causal_get_approximate_clock(
+	const std::vector<int> & fluxes, double alpha,
+	double clock_prior, bool use_prior) {
+
+	return causal_get_approximate_clock(fluxes,
+		alpha, clock_prior, use_prior, false,
+		true);
 }
 
 std::vector<double> causal_get_approximate_clock(
@@ -104,16 +143,28 @@ MFM_train_data decode_by_clock(const std::vector<int> & fluxes,
 
 	for (size_t i = 0; i < fluxes.size(); ++i) {
 		int observed_pulse_delay = fluxes[i];
+
+		if (clock_values[i] == CLOCK_OOB_DO_SKIP) {
+			continue;
+		}
                 
-		size_t zero_bits = round(
+		int zero_bits = round(
 			2.0 * observed_pulse_delay / clock_values[i]) - 1;
 
-		zero_bits = std::min(3, std::max(1, (int)zero_bits));
+		if (zero_bits < 0) {
+			throw std::invalid_argument("decode_by_clock: invalid clock stream "
+				"(negative number of zero bits!)");
+		}
 
-		for (size_t j = 0; j < zero_bits; ++j) {
+		// Trust the input to otherwise have done sensible clamping, so
+		// we don't need to do any clamping on our own end. Hence
+		// there's no std::min(3...) here.
+
+		for (int j = 0; j < zero_bits; ++j) {
 			train.data.push_back(0);
 			train.flux_indices.push_back(i + starting_offset);
 		}
+
 		train.data.push_back(1);
 		train.flux_indices.push_back(i + starting_offset);
 	}
@@ -143,17 +194,16 @@ MFM_train_data causal_EWMA_clock_decoder::get_MFM_train(
 
 	if (is_initial_clock_set()) {
 		clock_values = causal_get_approximate_clock(cropped,
-			alpha, initial_clock, true);
+			alpha, initial_clock, true, ignore_lower, clamp);
 	} else {
 		clock_values = causal_get_approximate_clock(
 			cropped, alpha);
+		// Use the last value as a prior to fill in the first values.
+		// (This is kind of dirty.)
+
+		clock_values = causal_get_approximate_clock(cropped, alpha,
+			*clock_values.rbegin(), true, ignore_lower, clamp);
 	}
-
-	// Use the last value as a prior to fill in the first values.
-	// (This is kind of dirty.)
-
-	clock_values = causal_get_approximate_clock(cropped, alpha,
-		*clock_values.rbegin(), true);
 	
 	return decode_by_clock(cropped, clock_values, start_pos);
 }
