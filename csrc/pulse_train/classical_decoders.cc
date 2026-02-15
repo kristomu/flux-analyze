@@ -142,10 +142,9 @@ MFM_train_data orig_EWMA_causal_clock_decoder::get_MFM_train(
 }
 
 // Trying a reasonably faithful reproduction of the VHDL PLL code.
-// The only difference is: the center for three half-clocks is at 3x
-// a half clock, not 32/11 x.
 
-// Maybe not faithful enough?
+// Changing ints to doubles makes it worse.
+
 MFM_train_data historical_EWMA_decoder::get_MFM_train(
 		const std::vector<int> & fluxes, size_t start_pos,
 		size_t end_pos, double & RMSE_out) const {
@@ -155,238 +154,82 @@ MFM_train_data historical_EWMA_decoder::get_MFM_train(
 	train.data.push_back(1);
 	train.flux_indices.push_back(0);
 
-	RMSE_out = 0;
-	double estimated_half_clock = initial_clock / 2;
+	RMSE_out = std::numeric_limits<double>::infinity();
 
-	/*
-	-- length limits
-	variable one_imp_low  : integer range 0 to 1000 := 0;
-	variable one_imp_nom  : integer range 0 to 1000 := 0;
-	variable one_imp_high : integer range 0 to 1000 := 0;
-	 
-	variable two_imp_low  : integer range 0 to 1000 := 0;
-	variable two_imp_nom  : integer range 0 to 1000 := 0;
-	variable two_imp_high : integer range 0 to 1000 := 0;
-	 
-	variable tre_imp_low  : integer range 0 to 1000 := 0;
-	variable tre_imp_nom  : integer range 0 to 1000 := 0;
-	variable tre_imp_high : integer range 0 to 1000 := 0;
-	*/
-
-	int one_imp_low, one_imp_nom, one_imp_high;
-	int two_imp_low, two_imp_nom, two_imp_high;
-	int tre_imp_low, tre_imp_nom, tre_imp_high;
-	 
-	/*-- delay:
-	variable old_delay    : integer range 0 to 1000 := 0;
-	variable new_delay    : integer range 0 to 1000 := 0;
-	 
-	variable length_snap  : integer range 0 to 1000 := 0;
-
-	*/
-
-	int old_delay, new_delay, length_snap;
-	int delay = fluxes[start_pos]; // initial clock estimate ???
+	train.data.push_back(1);
+	train.flux_indices.push_back(start_pos);
+ 
+	int old_clock, new_clock;
+	int clock = fluxes[start_pos]; // initial clock estimate ???
 
 	for (size_t i = start_pos; i < end_pos; ++i) {
-		/*
-		begin
-	 
-	    	if (rdata_pulse = '1' and rdata_pulse'event ) then
-	 
-	        if (read_front /= read_back and read_cancel = '0') then
-	    */
 
-		// pulse edge, store delay in a variable
-		int old_delay = delay;
-
-		one_imp_low = old_delay - old_delay / 4;
-		one_imp_nom = old_delay;
-		one_imp_high = old_delay + old_delay / 4;
-
-		two_imp_low = old_delay + old_delay / 4;
-		two_imp_nom = old_delay + old_delay / 2;
-		two_imp_high = old_delay + old_delay - old_delay / 4;
-
-		tre_imp_low = old_delay + old_delay - old_delay / 4;
-		tre_imp_nom = old_delay + old_delay;
-		tre_imp_high = old_delay + old_delay + old_delay / 4;
+		// pulse edge, store clock in a variable
+		old_clock = clock;
 
 		int length = fluxes[i]; // is this what length is ???
-
-		length_snap = length; // <--- ????
-
-		/*
-	            -- process MFM bits
-	            if (skip > 0) then
-	                skip <= skip - 1;
-	            elsif (length_snap < delay/4) then
-	                -- too small
-	            elsif (length_snap < one_imp_high) then
-	                -- 1us between two pulses
-	                new_delay := old_delay - (old_delay - length_snap)/2;
-	                mfm_type <= 2;
-	                mfm_front <= mfm_front + 1;
-	            elsif (length_snap < two_imp_high) then
-	                -- 1.5us between two pulses
-	                mfm_type <= 3;
-	                mfm_front <= mfm_front + 1;
-	                new_delay := old_delay - (old_delay-(length_snap+length_snap)/4-
-	                                (length_snap+length_snap)/8 +
-	                                (length_snap+length_snap)/32)/2;
-	            elsif (length_snap < delay+delay+delay) then
-	                -- 2us between two pulses
-	                mfm_type <= 4;
-	                mfm_front <= mfm_front + 1;
-	                new_delay := old_delay - (old_delay - length_snap/2)/2;
-	            else
-	                -- too long duration between pulses
-	                skip <= 5;
-	            end if;
-	    */
 
 	    // Not entirely sure if this is what's going on
 	    // "skip" is just outputting a zero, I think
 
-	    bool emit = false;
-	    int mfm_type = -1;
-	    int skip = 0;
-	    new_delay = delay;
-	    int nd_simplified;
+		bool emit = false;
+		int mfm_type = -1;
+		new_clock = clock;
 
-	    if (length_snap < delay/4) {
-	    	// nothing
-	    } else if (length_snap < one_imp_high) { // 1 us
-	    	new_delay = old_delay - (old_delay - length_snap) / 2;
-	    	mfm_type = 2;
-	    	emit = true;
-	    } else if (length_snap < two_imp_high) { // 1.5 us
-	    	emit = true;
-	    	mfm_type = 3;
-	    	// WTF?
-	    	new_delay = old_delay - (old_delay-(length_snap+length_snap)/4-
-	                                (length_snap+length_snap)/8 +
-	                                (length_snap+length_snap)/32)/2;
-	    	nd_simplified = old_delay - (old_delay-
-    								length_snap/2-
-	                                length_snap/4 +
-	                                length_snap/16)/2;
-	    	if (nd_simplified != new_delay) {
-	    		std::cout << new_delay << "\t" << nd_simplified << "\n";
-	    		throw std::logic_error("oops");
-	    	}
-	    } else if (length_snap < delay + delay + delay) { // 2 us
-	    	emit = true;
-	    	mfm_type = 4;
-	    	new_delay = old_delay - (old_delay - length_snap/2)/2;
-	    } else { // Too long a duration
-	    	skip = 5; // ???
-	    }
+		//          0 ...  1 clock/4      -> too short
+		//  1 clock/4 ...  5 clock/4      -> short
+		//  5 clock/4 ...  7 clock/4      -> medium
+		//  7 clock/4 ... 12 clock/4      -> long
+		// 12 clock/4 ... infty	          -> too long
+		
+		if (4 * length < clock) { // too short
+			// nothing
+		} else if (4 * length < 5 * old_clock) { // 1 us
+			new_clock = old_clock - (old_clock - length) / 2;
+			mfm_type = 2;
+			emit = true;
+		} else if (4 * length < 7 * old_clock) { // 1.5 us
+			emit = true;
+			mfm_type = 3;
+			// Some kind of magic; the whole thing breaks down
+			// if you change the ints to doubles, for some reason.
 
-	    if (emit) {
-	    	for (int j = 0; j < mfm_type-1; ++j) {
+			// new_clock = old_clock/2 + 11/32 length
+			// but not quite.
+
+			new_clock = old_clock - (old_clock
+				- length/2
+				- length/4
+				+ length/16) / 2;
+		} else if (length < 3 * clock) { // 2 us
+			emit = true;
+			mfm_type = 4;
+			new_clock = old_clock - (old_clock - length/2)/2;
+		} else { // Too long a duration
+			// skip = 5; // ???
+		}
+
+		if (emit) {
+			for (int j = 0; j < mfm_type-1; ++j) {
 				train.data.push_back(0);
-				train.flux_indices.push_back(i);
+				train.flux_indices.push_back(start_pos + i);
 			}
 			train.data.push_back(1);
-			train.flux_indices.push_back(i);
-	    }
+			train.flux_indices.push_back(start_pos + i);
+		}
 
-	    /*
-	 
-	            -- filter and update delay:
-	            if (new_delay > old_delay + old_delay/8) then
-	                delay <= old_delay + old_delay/8;
-	            elsif (new_delay < old_delay - old_delay/8) then
-	                delay <= old_delay - old_delay/8;
-	            else
-	                delay <= new_delay;
-	            end if;
-	    */
-		if (new_delay > old_delay + old_delay / 8) {
-			delay = old_delay + old_delay / 8;
-		} else if ( new_delay < old_delay - old_delay / 8) {
-			delay = old_delay - old_delay / 8;
+		// Update clock
+		// The maximum amount that the clock can change is
+		// bounded.
+
+		if (new_clock > 9 * old_clock / 8) {
+			clock = 9 * old_clock / 8;
+		} else if ( new_clock < 7 * old_clock / 8) {
+			clock = 7 * old_clock / 8;
 		} else {
-			delay = new_delay;
+			clock = new_clock;
 		}
 	}
 
-	RMSE_out = std::sqrt(RMSE_out / (end_pos - start_pos));
-
-	return train;
-
-		/*
-	            -- initialize length for next pulse
-	            reset_front <= reset_front + 1;
-	 
-	        else
-	 
-	            -- initialize skip to 1
-	            skip       <= 1;
-	            -- initialize delay to 100
-	            delay      <= 100;
-	 
-	        end if;
-	 
-	    end if;
-	 
-	end process;
-	*/
-
-}
-
-
-/*
-MFM_train_data historical_EWMA_decoder::get_MFM_train(
-		const std::vector<int> & fluxes, size_t start_pos,
-		size_t end_pos, double & RMSE_out) const {
-
-	MFM_train_data train;
-	
-	train.data.push_back(1);
-	train.flux_indices.push_back(0);
-
-	RMSE_out = 0;
-	double estimated_half_clock = initial_clock / 2;
-
-	for (size_t i = start_pos; i < end_pos; ++i) {
-		int half_clocks = round(fluxes[i]/estimated_half_clock);
-
-		double error_term = fluxes[i] - half_clocks * estimated_half_clock;
-		RMSE_out += error_term * error_term;
-
-		if (half_clocks == 0 || half_clocks > 4) { continue; }
-
-		// The VHDL code has alpha = 0.5, but we'll let it be
-		// a parameter.
-		double proposed = estimated_half_clock * (1-alpha) + 
-			fluxes[i]/(double)half_clocks * alpha;
-
-		// Outlier thresholding: if the deviation is too far, ignore.
-		if (proposed > 2.25 * estimated_half_clock) {
-			proposed = 2.25 * estimated_half_clock;
-		}
-		if (proposed < 0.75 * estimated_half_clock) {
-			proposed = 0.75 * estimated_half_clock;	
-		}
-
-		estimated_half_clock = proposed;
-
-		int zeroes = std::max(0, half_clocks-1);
-
-		if (zeroes == 0) { continue; }
-
-		for (int j = 0; j < zeroes; ++j) {
-			train.data.push_back(0);
-			train.flux_indices.push_back(i);
-		}
-		train.data.push_back(1);
-		train.flux_indices.push_back(i);
-	}
-
-	RMSE_out = std::sqrt(RMSE_out / (end_pos - start_pos));
-
 	return train;
 }
-*/
