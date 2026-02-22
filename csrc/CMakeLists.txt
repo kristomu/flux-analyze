@@ -18,8 +18,10 @@ find_package(Protobuf REQUIRED)
 add_subdirectory(protobuf)
 
 add_executable(${PROG_NAME}
+	pulse_train/alternating.cc
 	pulse_train/classical_decoders.cc
 	pulse_train/ewma.cc
+	pulse_train/dp/one_mode_dp.cc
 	rabin_karp/rabin_karp.cc
 	address_marks.cc
 	crc16.cc
