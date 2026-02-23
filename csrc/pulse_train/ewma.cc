@@ -22,7 +22,7 @@ const int CLOCK_OOB_DO_SKIP = -1;
 std::vector<double> causal_get_approximate_clock(
 	const std::vector<int> & fluxes, double alpha,
 	double clock_prior, bool use_prior, bool ignore_lower,
-	bool clamp) {
+	bool clamp, double max_relative_change) {
 
 	std::vector<double> appx_clock;
 
@@ -55,7 +55,19 @@ std::vector<double> causal_get_approximate_clock(
 			new_clock = 2 * observed_pulse_delay / (zero_bits + 1.0);
 		}
 
-		mean_clock = (1-alpha) * mean_clock + alpha * new_clock;
+		double proposed_mean_clock =
+			(1-alpha) * mean_clock + alpha * new_clock;
+
+		// Limit how much the clock can change, relatively:
+		// the clock gets clamped to the interval (current/mrc, current*mrc)
+		if (max_relative_change > 0) {
+			proposed_mean_clock = std::max(mean_clock / max_relative_change,
+				proposed_mean_clock);
+			proposed_mean_clock = std::min(mean_clock * max_relative_change,
+				proposed_mean_clock);
+		}
+
+		mean_clock = proposed_mean_clock;
 
 		if (i < warmup_period) {
 			appx_clock.push_back(-1);
@@ -74,7 +86,7 @@ std::vector<double> causal_get_approximate_clock(
 
 	return causal_get_approximate_clock(fluxes,
 		alpha, clock_prior, use_prior, false,
-		true);
+		true, -1);
 }
 
 std::vector<double> causal_get_approximate_clock(
@@ -194,7 +206,8 @@ MFM_train_data causal_EWMA_clock_decoder::get_MFM_train(
 
 	if (is_initial_clock_set()) {
 		clock_values = causal_get_approximate_clock(cropped,
-			alpha, initial_clock, true, ignore_lower, clamp);
+			alpha, initial_clock, true, ignore_lower, clamp,
+			max_relative_change);
 	} else {
 		clock_values = causal_get_approximate_clock(
 			cropped, alpha);
@@ -202,7 +215,8 @@ MFM_train_data causal_EWMA_clock_decoder::get_MFM_train(
 		// (This is kind of dirty.)
 
 		clock_values = causal_get_approximate_clock(cropped, alpha,
-			*clock_values.rbegin(), true, ignore_lower, clamp);
+			*clock_values.rbegin(), true, ignore_lower, clamp,
+			max_relative_change);
 	}
 	
 	return decode_by_clock(cropped, clock_values, start_pos);

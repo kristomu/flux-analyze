@@ -23,6 +23,8 @@ class causal_EWMA_clock_decoder : public pulse_decoder {
 		double alpha;
 		double initial_clock = -1;
 
+		double max_relative_change = -1;
+
 		bool ignore_lower = false;
 		bool clamp = true;
 
@@ -56,6 +58,14 @@ class causal_EWMA_clock_decoder : public pulse_decoder {
 
 		void set_clamp(bool clamp_in) {
 			clamp = clamp_in;
+		}
+
+		void set_max_relative_change(double max_relative_change_in) {
+			if (max_relative_change < 1) {
+				throw std::invalid_argument("set_max_relative_change: "
+						"must give the maximum as a fraction of the current value, hence max_relative_change >= 1");
+			}
+			max_relative_change = max_relative_change_in;
 		}
 
 		causal_EWMA_clock_decoder() : causal_EWMA_clock_decoder(0.5, 24) {}
