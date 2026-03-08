@@ -216,7 +216,8 @@ double get_error(double clock,
 double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	std::vector<int>::const_iterator match_start,
 	std::vector<int>::const_iterator next_match_start,
-	std::vector<int>::const_iterator fluxes_end) {
+	std::vector<int>::const_iterator fluxes_end,
+	bool verbose) {
 
 	auto match_pos = match_start;
 
@@ -328,10 +329,14 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 				record = err;
 				recordholder = mix;
 			}
-			std::cout << "Clock = " << mix << " error = " << err << std::endl;
+			if (verbose) {
+				std::cout << "Clock = " << mix << " error = " << err << std::endl;
+			}
 		}
-		std::cout << "lower: " << clock_lower << " record: " 
-			<< recordholder << " upper: " << clock_upper << std::endl;
+		if (verbose) {
+			std::cout << "lower: " << clock_lower << " record: "
+				<< recordholder << " upper: " << clock_upper << std::endl;
+		}
 		return recordholder;
 	} else {
 		// There are distinct bands but it's not possible to fit
@@ -356,7 +361,8 @@ double get_clock(const std::vector<char> & MFM_train_search_sequence,
 std::vector<match_with_clock> get_flux_matches(
 	const std::vector<int> & flux_transitions,
 	const std::vector<search_result> & possible_matches,
-	const IBM_preamble & preamble_info) {
+	const IBM_preamble & preamble_info,
+	bool verbose) {
 
 	std::vector<match_with_clock> out;
 	match_with_clock true_match;
@@ -405,7 +411,7 @@ std::vector<match_with_clock> get_flux_matches(
 		double clock =	get_clock(amended_preamble,
 			flux_transitions.begin() + result.idx - offset,
 			next_match_start,
-			flux_transitions.end());
+			flux_transitions.end(), verbose);
 
 		if (clock < 0) {
 			continue; // false positive or impossible to fit clock

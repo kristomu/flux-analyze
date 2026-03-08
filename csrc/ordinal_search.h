@@ -66,11 +66,13 @@ ordinal_pattern get_ordinal_search_sequence(
 
 double get_clock(const std::vector<char> & MFM_train_search_sequence,
 	std::vector<int>::const_iterator match_start,
-	std::vector<int>::const_iterator fluxes_end);
+	std::vector<int>::const_iterator fluxes_end,
+	bool verbose);
 
 // This filters out a bunch of possible false positives.
 
 std::vector<match_with_clock> get_flux_matches(
 	const std::vector<int> & flux_transitions,
 	const std::vector<search_result> & possible_matches,
-	const IBM_preamble & preamble_info);
+	const IBM_preamble & preamble_info,
+	bool verbose);

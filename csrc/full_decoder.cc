@@ -1,8 +1,9 @@
 #include "full_decoder.h"
 
+#include "pulse_train/all.h"
+
 // ORDINAL
 #include "ordinal_search.h"
-#include "pulse_train/classical_decoders.h"
 
 // ONCE-THROUGH
 // (to add includes here)
@@ -63,7 +64,7 @@ decoded_tracks ordinal_full_decoder::decode_track(
 		ordinal_preamble_search.find_matches(ordinal_flux);
 	std::vector<match_with_clock> matches =
 		get_flux_matches(fluxes, ordinal_locations,
-			preamble_info);
+			preamble_info, verbose);
 
 	timeline floppy_line;
 	// A linear sequence made up of each decoded chunk concatenated
@@ -95,8 +96,10 @@ decoded_tracks ordinal_full_decoder::decode_track(
 			end_idx = matches[j+1].match_location;
 		}
 
-		std::cout << "Start idx: " << matches[j].match_location << ", end idx: "
-			<< end_idx << " offset " << matches[j].offset << "\n";
+		if (verbose) {
+			std::cout << "[" << j << "/" << matches.size() << "]\tStart idx: " << matches[j].match_location << ", end idx: "
+				<< end_idx << " offset " << matches[j].offset << "\n";
+		}
 
 		// HACK: If the matched area is too short for a preamble, then
 		// it's a false positive. Signal as such; it's mostly irrelevant
@@ -107,33 +110,49 @@ decoded_tracks ordinal_full_decoder::decode_track(
 		// so I don't have to rely on every preamble being the same length
 		// as I'm doing here.
 		if (end_idx - start_idx < preamble_info.get_preamble_by_ID(0).size()) {
-			std::cout << "Too short!\n";
+			if (verbose) {
+				std::cout << "Too short!\n";
+			}
 			next.status = TS_TRUNCATED;
 			floppy_line.insert(next);
 			continue;
 		}
-		std::cout << "Found " << m.match_location << " with clock " <<
-			m.estimated_clock << " (interval " << start_idx << "-" <<
-			end_idx << ")";
+
+		if (verbose) {
+			std::cout << "Found " << m.match_location << " with clock " <<
+				m.estimated_clock << " (interval " << start_idx << "-" <<
+				end_idx << ")";
+			}
 
 		double error;
 
+		// TODO: Allow any kind of clock decoder as an input -- or
+		// even something like a "brute-force" band-based decoder
+		// like in Python.
+
 		constant_clock_decoder c_MFM_decoder;
+		causal_EWMA_clock_decoder variable_decoder; // e.g.
 
 		next.clock_value = m.estimated_clock;
 		next.flux_data = std::vector<int>(fluxes.begin() + start_idx,
 			fluxes.begin() + end_idx);
 		c_MFM_decoder.set_clock(next.clock_value);
+		variable_decoder.set_initial_clock(next.clock_value);
+		variable_decoder.set_alpha(0.001);
 		next.mfm_train = c_MFM_decoder.get_MFM_train(
 			next.flux_data, error);
 
-		 std::cout << " -- Error: " << error << std::endl;
+		if (verbose) {
+			std::cout << " -- Error: " << error << std::endl;
+		}
 
 		// HACK HACK: Find the offset from the start of the MFM train
 		// to the start of the preamble. (TODO: lots of optimization
-		// can be done here. Not yet though.)
+		// can be done here; e.g. trying variable decoder and then
+		// falling back onto c_MFM_decoder on failure. Not yet though.)
 		std::vector<search_result> preamble_locations =
 			preamble_search.find_matches(next.mfm_train.data, 1);
+
 		if (preamble_locations.empty()) {
 			// This happens when the clock estimate is wrong, which
 			// shouldn't happen. (We should be signaling errors earlier
@@ -157,17 +176,20 @@ decoded_tracks ordinal_full_decoder::decode_track(
 		}
 	}
 
-	IBM_decoder.decode(floppy_line, decoded, true);
+	bool show_stats = true;//verbose;
+	IBM_decoder.decode(floppy_line, decoded, verbose, show_stats);
 
 	// TODO: Get stats in a more unified manner than this...
+	// I do have a stats structure now; use it for that, perhaps.
 
-	std::vector<size_t> covered = floppy_line.get_covered_flux_sizes();
-	std::cout << "DEBUG: Timeline occupancy: ";
-	std::copy(covered.begin(), covered.end(),
-		std::ostream_iterator<size_t>(std::cout, " "));
-	std::cout << "\n";
-	std::cout << "Fraction of flux transitions decoded as good: " << floppy_line.get_good_fraction() << "\n";
-
+	if (verbose) {
+		std::vector<size_t> covered = floppy_line.get_covered_flux_sizes();
+		std::cout << "DEBUG: Timeline occupancy: ";
+		std::copy(covered.begin(), covered.end(),
+			std::ostream_iterator<size_t>(std::cout, " "));
+		std::cout << "\n";
+		std::cout << "Fraction of flux transitions decoded as good: " << floppy_line.get_good_fraction() << "\n";
+	}
 
 	return decoded;
 }
@@ -187,12 +209,14 @@ decoded_tracks once_through_decoder::decode_track(
 	std::vector<search_result> preamble_positions =
 		preamble_search.find_matches(full_decoding.data);
 
+	if (verbose) {
 		for (const search_result & sr: preamble_positions) {
-		std::cout << "Found preamble at " << sr.idx << "\t";
-		switch(sr.ID) {
-			case PREAMBLE_ID_A1: std::cout << "A1A1A1\n"; break;
-			case PREAMBLE_ID_C2: std::cout << "C2C2C2\n"; break;
-			default: std::cout << "???\n"; break;
+			std::cout << "Found preamble at " << sr.idx << "\t";
+			switch(sr.ID) {
+				case PREAMBLE_ID_A1: std::cout << "A1A1A1\n"; break;
+				case PREAMBLE_ID_C2: std::cout << "C2C2C2\n"; break;
+				default: std::cout << "???\n"; break;
+			}
 		}
 	}
 
@@ -224,8 +248,6 @@ decoded_tracks once_through_decoder::decode_track(
 	// start/end_idx_train. Search result indices are train
 	// indices.
 
-	std::cout << "Dudes...\n";
-
 	if (preamble_positions[0].idx > 0) {
 		size_t start_idx_train = preamble_positions[0].idx;
 		size_t start_idx_flux = full_decoding.flux_indices[start_idx_train];
@@ -238,8 +260,6 @@ decoded_tracks once_through_decoder::decode_track(
 
 		floppy_line.insert(first);
 	}
-
-	std::cout << "And dudettes\n";
 
 	// A linear sequence made up of each decoded chunk concatenated
 	// in order.
@@ -272,12 +292,17 @@ decoded_tracks once_through_decoder::decode_track(
 			--start_idx_train;
 		}
 
-		std::cout << "(Flux) Start idx: " << start_idx_flux<< ", end idx: "
-			<< end_idx_flux << " offset " << offset << "\n";
-		std::cout << "(Train) Start idx: " << start_idx_train << ", end idx: "
-			<< end_idx_train << " offset " << offset << "\n";
+		if (verbose) {
+			std::cout << "(Flux) Start idx: " << start_idx_flux<< ", end idx: "
+				<< end_idx_flux << " offset " << offset << "\n";
+			std::cout << "(Train) Start idx: " << start_idx_train << ", end idx: "
+				<< end_idx_train << " offset " << offset << "\n";
+		}
 
-		// Something's wrong here. TODO: Find out.
+		// This seems to work, but I feel kinda iffy about it because
+		// all the old code - particularly the timeslice stuff - is so
+		// uneven.
+
 		// Also whether offset is even used is kinda unclear. I need
 		// a better timeline/timeslice structure.
 
@@ -295,15 +320,17 @@ decoded_tracks once_through_decoder::decode_track(
 		floppy_line.insert(next);
 	}
 
-	bool verbose = true;
+	bool show_stats = verbose;
 
-	IBM_decoder.decode(floppy_line, decoded, verbose);
+	IBM_decoder.decode(floppy_line, decoded, verbose, show_stats);
 
 	std::vector<size_t> covered = floppy_line.get_covered_flux_sizes();
-	std::cout << "DEBUG: Timeline occupancy: ";
-	std::copy(covered.begin(), covered.end(),
-		std::ostream_iterator<size_t>(std::cout, " "));
-	std::cout << "\n";
+	if (verbose) {
+		std::cout << "DEBUG: Timeline occupancy: ";
+		std::copy(covered.begin(), covered.end(),
+			std::ostream_iterator<size_t>(std::cout, " "));
+		std::cout << "\n";
+	}
 	std::cout << "Fraction of flux transitions decoded as good: " << floppy_line.get_good_fraction() << "\n";
 
 	//throw std::logic_error("Job's done!");

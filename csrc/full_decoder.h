@@ -16,6 +16,8 @@ class full_decoder {
 		IBM_preamble preamble_info;
 		rabin_karp preamble_search;
 
+		bool verbose = false;
+
 	public:
 		decoded_tracks decode_track(
 			const flux_record & f) const;
@@ -30,6 +32,10 @@ class full_decoder {
 				PREAMBLE_ID_A1) {
 			preamble_search.add(preamble_info.C2_sequence,
 				PREAMBLE_ID_C2);
+		}
+
+		void set_verbose(bool in_verbose) {
+			verbose = in_verbose;
 		}
 
 		virtual std::string name() const = 0;
@@ -69,6 +75,10 @@ class once_through_decoder : public full_decoder {
 
 		once_through_decoder(
 			std::shared_ptr<pulse_decoder> p_decoder_in) : full_decoder() {
+			flux_to_MFM_decoder = p_decoder_in;
+		}
+
+		void set_pulse_decoder(std::shared_ptr<pulse_decoder> p_decoder_in) {
 			flux_to_MFM_decoder = p_decoder_in;
 		}
 };

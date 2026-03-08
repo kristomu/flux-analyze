@@ -15,6 +15,33 @@
 #include "timeline.h"
 #include "tools.h"
 
+std::vector<bool> boolean_or(std::vector<bool> a,
+	std::vector<bool> b) {
+
+	if (a.size() < b.size()) {
+		return boolean_or(b, a);
+	}
+
+	for (size_t i = 0; i < b.size(); ++i) {
+		a[i] = a[i] | b[i];
+	}
+
+	return a;
+}
+
+size_t count(const std::vector<bool> & a) {
+	size_t trues_so_far = 0;
+
+	for (bool x: a) {
+		if (x) {
+			++trues_so_far;
+		}
+	}
+
+	return trues_so_far;
+}
+
+
 // The DAM has a close IDAM if there's no way for another DAM to
 // be sandwiched between them. Perhaps better would be "if there's
 // no way for another IDAM to be sandwiched between them"? But that
@@ -98,10 +125,17 @@ address_mark decoder::deserialize(
 // a total error count so that we can determine how many errors there are
 // in a given chunk decoding. TODO?
 
-// This is in need of some serious refactoring, if not an outright rewrite.
+// The way this works, it decodes a timeline to a decoded_tracks structure
+// that contains the recovered data, and also outputs a decoder_stats
+// structure giving information about what has been decoded. But one is
+// done through an output variable and the other as a return value. But
+// it's tempting to just keep the ugly code while optimizing, and then
+// rewrite later.
 
 decoder_stats decoder::decode(timeline & line_to_decode,
-	decoded_tracks & decoded, bool verbose) {
+	decoded_tracks & decoded, bool verbose,
+	bool show_stats) {
+
 	int failures = 0;
 
 	// Used for linking DAMs to IDAMs to determine what
@@ -214,17 +248,19 @@ decoder_stats decoder::decode(timeline & line_to_decode,
 
 	// Show stats for unknown timeslices.
 
-	for (auto ts_pos = line_to_decode.timeslices.begin();
-		ts_pos != line_to_decode.timeslices.end(); ++ts_pos) {
+	if (show_stats) {
+		for (auto ts_pos = line_to_decode.timeslices.begin();
+			ts_pos != line_to_decode.timeslices.end(); ++ts_pos) {
 
-		if (ts_pos->status != TS_UNKNOWN) { continue; }
+			if (ts_pos->status != TS_UNKNOWN) { continue; }
 
-		std::cout << "Unknown timeslice at " << ts_pos->sector_data_begin << " to " <<
-			ts_pos->sector_data_end() << " (" << ts_pos->sector_data_end()-
-			ts_pos->sector_data_begin << " bytes.)" << std::endl;
+			std::cout << "Unknown timeslice at " << ts_pos->sector_data_begin << " to " <<
+				ts_pos->sector_data_end() << " (" << ts_pos->sector_data_end()-
+				ts_pos->sector_data_begin << " bytes.)" << std::endl;
+		}
+
+		std::cout << "Unknown AMs detected: " << unknowns << std::endl;
 	}
-
-	std::cout << "Unknown AMs detected: " << unknowns << std::endl;
 
 	// This set contains the IDAMs corresponding to sectors with
 	// valid data.
@@ -234,8 +270,10 @@ decoder_stats decoder::decode(timeline & line_to_decode,
 	for (auto & sector_constituents: full_sectors_found) {
 
 		if (sector_constituents.second.mark_type == A_DDAM) {
-			std::cout << "Warning: found DDAM. This is not "
-				"currently supported." << std::endl;
+			if (verbose) {
+				std::cout << "Warning: found DDAM. This is not "
+					"currently supported." << std::endl;
+			}
 			continue;
 		}
 
@@ -269,28 +307,50 @@ decoder_stats decoder::decode(timeline & line_to_decode,
 		}
 	}
 
+
+	// TODO: Fix this ugliness.
+	// For all we know, the idams may have separate tracks. Yuck.
+
 	// Guess at the number of sectors, assuming the sectors start at 1.
 	size_t num_sectors = all_sectors.size();
+	int track = -1; // <--- !!!!
 
 	for (const IDAM & idam: unique_OK_sectors) {
 		num_sectors = std::max(num_sectors, (size_t) idam.sector);
+		track = idam.track; // <--- !!!!
 
-		std::cout << "OK sector found: ";
-		idam.print_info();
-		std::cout << "\n";
+		if (show_stats) {
+			std::cout << "OK sector found: ";
+			idam.print_info();
+			std::cout << "\n";
+		}
 	}
 
-	std::cout << "Address mark failures: " << failures << std::endl;
-	std::cout << "Sectors recovered: " << unique_OK_sectors.size() << " out of " << num_sectors << std::endl;
-	std::cout << "Unique sector metadata chunks: " << all_sectors.size() << std::endl;
-	std::cout << "Total timeslices: " << line_to_decode.timeslices.size() << std::endl;
+	if (show_stats) {
+		std::cout << "Address mark failures: " << failures << std::endl;
+		std::cout << "Sectors recovered: " << unique_OK_sectors.size() << " out of " << num_sectors << std::endl;
+		std::cout << "Unique sector metadata chunks: " << all_sectors.size() << std::endl;
+		std::cout << "Total timeslices: " << line_to_decode.timeslices.size() << std::endl;
+	}
 
 	decoder_stats stats_out;
 
 	stats_out.failures = failures;
-	stats_out.recovered_sectors = unique_OK_sectors.size();
-	stats_out.unique_metadata_chunks = all_sectors.size();
-	stats_out.total_timeslices = line_to_decode.timeslices.size();
+	stats_out.is_sector_recovered = std::vector<bool>(num_sectors, false);
+	for (const IDAM & idam: unique_OK_sectors) {
+		// Floppy sector numbers are one-indexed.
+		// Will this lack of integrity checking later bite me in the butt? Who knows.
+		stats_out.is_sector_recovered[idam.sector-1] = true;
+	}
+	// I shouldn't reach into stats' internals like this.
+	stats_out.num_recovered_sectors = count(stats_out.is_sector_recovered);
+	stats_out.num_sectors = stats_out.is_sector_recovered.size();
+	/*stats_out.unique_metadata_chunks = all_sectors.size();
+	stats_out.total_timeslices = line_to_decode.timeslices.size();*/
+
+	if (track != -1) {
+		decoded.stats_per_track[track] += stats_out;
+	}
 
 	return stats_out;
 }

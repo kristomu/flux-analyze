@@ -150,6 +150,12 @@ double find_approximate_period(const std::vector<int> & in_fluxes) {
 
 // It's much better to do something principled like DP.
 
+
+// TODO: Move this to a full decoder - but only use it as an upper bound
+// of what performance I can get from current methods. It has too much
+// of a false positive risk (as far as I remember).
+
+
 decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	double min_alpha, double max_alpha, double stepsize,
 	bool verbose) {
@@ -255,7 +261,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 		// TODO: Don't be so chatty both times about what we've
 		// decoded. Probably needs a decoder redesign.
 
-		IBM_decoder.decode(floppy_line, decoded, verbose);
+		IBM_decoder.decode(floppy_line, decoded, verbose, false);
 
 		// Restore any bad decodes that got turned into unknowns.
 		// This is very iffy and needs a proper redesign; for that
@@ -297,7 +303,7 @@ decoded_tracks decode_brute_dewarp(timeline & floppy_line,
 	}
 
 	// Do a final decode so we've got something to return.
-	IBM_decoder.decode(floppy_line, decoded, true);
+	IBM_decoder.decode(floppy_line, decoded, true, true);
 
 	return decoded;
 }

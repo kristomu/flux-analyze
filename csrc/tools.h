@@ -6,8 +6,12 @@
 
 std::string itos (int source);
 
+std::string dtos (double source);
+
 // https://stackoverflow.com/a/14612943
 int sign(int x);
+
+double sqr(double x);
 
 template<typename T> double median(std::vector<T> vec) {
 	// This will only be called for small vectors, so just sort.

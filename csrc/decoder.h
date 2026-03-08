@@ -10,12 +10,47 @@
 
 #include "timeline.h"
 
+#include <iostream>
+
+// For keeping track of decoding performance.
+
+std::vector<bool> boolean_or(std::vector<bool> a,
+	std::vector<bool> b);
+
+size_t count(const std::vector<bool> & a);
+
+class decoder_stats {
+	public:
+		std::vector<bool> is_sector_recovered;
+
+		size_t failures;
+		size_t num_recovered_sectors;
+		size_t num_sectors;
+		// These will have to wait until I find a proper
+		// union operation for them. TODO.
+
+		//size_t unique_metadata_chunks;
+		//size_t total_timeslices;
+
+		decoder_stats& operator+= (const decoder_stats & rhs) {
+			failures += rhs.failures;
+
+			is_sector_recovered = boolean_or(is_sector_recovered,
+				rhs.is_sector_recovered);
+			num_recovered_sectors = count(is_sector_recovered);
+			num_sectors = is_sector_recovered.size();
+
+			return *this;
+		}
+};
+
 class decoded_tracks {
 	public:
 		int last_track = 0;
 		int last_decoded_sector = 0;
 
 		std::map<IDAM, DAM> sector_data;
+		std::map<int, decoder_stats> stats_per_track;
 
 		// Add sectors from another track to this one.
 		decoded_tracks& operator+= (const decoded_tracks & rhs) {
@@ -26,18 +61,13 @@ class decoded_tracks {
 			sector_data.insert(rhs.sector_data.begin(),
 				rhs.sector_data.end());
 
+			for (const std::pair<int, decoder_stats>
+				track_stat : rhs.stats_per_track) {
+				stats_per_track[track_stat.first] += track_stat.second;
+			}
+
 			return *this;
 		}
-};
-
-// For keeping track of decoding performance.
-
-class decoder_stats {
-	public:
-		size_t failures;
-		size_t recovered_sectors;
-		size_t unique_metadata_chunks;
-		size_t total_timeslices;
 };
 
 class decoder {
@@ -58,7 +88,8 @@ class decoder {
 		// Adds OK sectors to the given decoded_tracks
 		// structure.
 		decoder_stats decode(timeline & line_to_decode,
-			decoded_tracks & decoded, bool verbose);
+			decoded_tracks & decoded, bool verbose,
+			bool show_stats);
 
 		// For debugging.
 		void dump_all_to_file(
