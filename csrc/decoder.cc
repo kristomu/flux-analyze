@@ -133,8 +133,8 @@ address_mark decoder::deserialize(
 // rewrite later.
 
 decoder_stats decoder::decode(timeline & line_to_decode,
-	decoded_tracks & decoded, bool verbose,
-	bool show_stats) {
+	decoded_tracks & out_decoded,
+	bool verbose, bool show_stats) {
 
 	int failures = 0;
 
@@ -293,11 +293,11 @@ decoder_stats decoder::decode(timeline & line_to_decode,
 			// TODO??? add IDAMs with blank DAMs if the IDAM was
 			// found but the data wasn't???
 
-			decoded.sector_data[idam] = dam;
-			decoded.last_track = std::max(decoded.last_track,
-				idam.track);
-			decoded.last_decoded_sector = std::max(
-				decoded.last_decoded_sector, idam.sector);
+			out_decoded.sector_data[idam] = dam;
+			out_decoded.last_track = std::max(
+				out_decoded.last_track, idam.track);
+			out_decoded.last_decoded_sector = std::max(
+				out_decoded.last_decoded_sector, idam.sector);
 		}
 
 		// Don't insert IDAMs with bad CRC; their sector metadata could be
@@ -347,9 +347,10 @@ decoder_stats decoder::decode(timeline & line_to_decode,
 	stats_out.num_sectors = stats_out.is_sector_recovered.size();
 	/*stats_out.unique_metadata_chunks = all_sectors.size();
 	stats_out.total_timeslices = line_to_decode.timeslices.size();*/
+	stats_out.flux_fraction_good = line_to_decode.get_good_fraction();
 
 	if (track != -1) {
-		decoded.stats_per_track[track] += stats_out;
+		out_decoded.stats_per_track[track] += stats_out;
 	}
 
 	return stats_out;

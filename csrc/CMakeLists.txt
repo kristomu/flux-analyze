@@ -35,6 +35,24 @@ add_executable(${PROG_NAME}
 	timeline.cc
 	tools.cc)
 
+add_executable(grid_search
+	pulse_train/alternating.cc
+	pulse_train/classical_decoders.cc
+	pulse_train/ewma.cc
+	pulse_train/dp/one_mode_dp.cc
+	rabin_karp/rabin_karp.cc
+	address_marks.cc
+	crc16.cc
+	decoder.cc
+	full_decoder.cc
+	flux_record.cc
+	grid_search_main.cc
+	ordinal_search.cc
+	preambles.cc
+	sector_data.cc
+	timeline.cc
+	tools.cc)
+
 add_executable(mfm_dp_test
 	flux_record.cc
 	dp/mfm_dp_test.cc)
@@ -53,5 +71,6 @@ set(ProtobufIncludePath ${CMAKE_CURRENT_BINARY_DIR}
 
 include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} ${ProtobufIncludePath})
 target_link_libraries( ${PROG_NAME} fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+target_link_libraries( grid_search fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
 target_link_libraries( mfm_dp_test fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
 target_link_libraries( copy_flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )

@@ -16,6 +16,32 @@ class constant_clock_decoder: public pulse_decoder {
 		MFM_train_data get_MFM_train(
 			const std::vector<int> & fluxes, size_t start_pos,
 			size_t end_pos, double & error_out) const;
+
+		// clock is a parameter of sorts, though an ill-fitting one.
+		// Might as well expose it here.
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_REAL};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {1};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {100}; // For reasonable floppy types?
+		}
+
+		std::vector<double> get_current_params() const {
+			return {clock};
+		}
+
+		void set_params(const std::vector<double> & params) {
+			clock = params[0];
+		}
+
+		std::string name() const {
+			return "Constant-clock decoder";
+		}
 };
 
 class orig_EWMA_causal_clock_decoder : public pulse_decoder {
@@ -46,6 +72,31 @@ class orig_EWMA_causal_clock_decoder : public pulse_decoder {
 		MFM_train_data get_MFM_train(
 			const std::vector<int> & fluxes, size_t start_pos,
 			size_t end_pos, double & error_out) const;
+
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_LOG_REAL, PARAM_REAL};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {0, 1};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {1, 100}; // For reasonable floppy types?
+		}
+
+		std::vector<double> get_current_params() const {
+			return {alpha, initial_clock};
+		}
+
+		void set_params(const std::vector<double> & params) {
+			alpha = params[0];
+			initial_clock = params[1];
+		}
+
+		std::string name() const {
+			return "Original causal EWMA decoder";
+		}
 };
 
 class historical_EWMA_decoder : public pulse_decoder {
@@ -76,4 +127,29 @@ class historical_EWMA_decoder : public pulse_decoder {
 		MFM_train_data get_MFM_train(
 			const std::vector<int> & fluxes, size_t start_pos,
 			size_t end_pos, double & error_out) const;
+
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_LOG_REAL, PARAM_REAL};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {0, 1};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {1, 100}; // For reasonable floppy types?
+		}
+
+		std::vector<double> get_current_params() const {
+			return {alpha, initial_clock};
+		}
+
+		void set_params(const std::vector<double> & params) {
+			alpha = params[0];
+			initial_clock = params[1];
+		}
+
+		std::string name() const {
+			return "Historical EWMA decoder";
+		}
 };

@@ -19,7 +19,7 @@
 // the usual "filtfilt" two-pass filtering approach,
 // and one that averages together forward and backward EWMA.
 
-typedef enum { AFT_FILTFILT, AFT_AVERAGE_FILT } filter_t;
+typedef enum { AFT_FILTFILT = 0, AFT_AVERAGE_FILT = 1 } filter_t;
 
 class alternating_EWMA_decoder : public pulse_decoder {
 	private:
@@ -70,6 +70,34 @@ class alternating_EWMA_decoder : public pulse_decoder {
 
 		void set_slope(double slope_in) {
 			linear_mix_slope = slope_in;
+		}
+
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_LOG_REAL, PARAM_INTEGER, PARAM_REAL, PARAM_REAL};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {0, 1, 0, -0.2};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {1, 10, 1.0, 0.2};
+		}
+
+		std::vector<double> get_current_params() const {
+			return {alpha, (double)num_iterations,
+				linear_mix_intercept, linear_mix_slope};
+		}
+
+		void set_params(const std::vector<double> & params) {
+			alpha = params[0];
+			num_iterations = params[1];
+			linear_mix_intercept = params[2];
+			linear_mix_slope = params[3];
+		}
+
+		std::string name() const {
+			return "Alternating EWMA";
 		}
 
 		alternating_EWMA_decoder() : alternating_EWMA_decoder(0.5, 4) {}

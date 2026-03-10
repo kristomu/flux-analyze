@@ -60,7 +60,14 @@ std::vector<double> causal_get_approximate_clock(
 
 		// Limit how much the clock can change, relatively:
 		// the clock gets clamped to the interval (current/mrc, current*mrc)
-		if (max_relative_change > 0) {
+		// Don't do any clamping while warming up, because our clock
+		// isn't reliable.
+
+		if (max_relative_change < 1) {
+			throw std::invalid_argument("EWMA: Max relative change is a limiter on x_new to (x_old/change ... x_old * change); it must be >= 1.");
+		}
+
+		if (i < warmup_period || max_relative_change > 0) {
 			proposed_mean_clock = std::max(mean_clock / max_relative_change,
 				proposed_mean_clock);
 			proposed_mean_clock = std::min(mean_clock * max_relative_change,

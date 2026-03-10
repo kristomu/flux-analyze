@@ -60,8 +60,7 @@ class QND_one_mode_DP : public pulse_decoder {
 			size_t end_pos, double & error_out) const;
 
 		std::string name() const {
-			return "One-mode DP (alpha = " + dtos(alpha) +
-				", beta = " + dtos(beta);
+			return "One-mode DP";
 		}
 
 		void set_grace_period(size_t grace_period_in) {
@@ -78,5 +77,30 @@ class QND_one_mode_DP : public pulse_decoder {
 
 		void set_smoothing_err_power(size_t smoothing_err_power_in) {
 			smoothing_err_power = smoothing_err_power_in;
+		}
+
+
+		void set_params(const std::vector<double> & params) {
+			alpha = params[0];
+			beta = params[1];
+			fidelity_err_power = params[2];
+			smoothing_err_power = params[3];
+		}
+
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_LOG_REAL, PARAM_LOG_REAL, PARAM_INTEGER, PARAM_INTEGER};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {0, 0, 1, 1};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {1, 100, 10, 10};
+		}
+
+		std::vector<double> get_current_params() const {
+			return {alpha, beta, (double)fidelity_err_power,
+				(double)smoothing_err_power};
 		}
 };

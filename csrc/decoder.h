@@ -32,6 +32,9 @@ class decoder_stats {
 		//size_t unique_metadata_chunks;
 		//size_t total_timeslices;
 
+		// The parameter below is a giant HACK. Fix later.
+		double flux_fraction_good = -1;
+
 		decoder_stats& operator+= (const decoder_stats & rhs) {
 			failures += rhs.failures;
 
@@ -39,6 +42,15 @@ class decoder_stats {
 				rhs.is_sector_recovered);
 			num_recovered_sectors = count(is_sector_recovered);
 			num_sectors = is_sector_recovered.size();
+
+			// This is not allowed because we can't add two fractions
+			// without knowing their relative contribution to the whole.
+			if (flux_fraction_good != -1) {
+				throw std::runtime_error("Can't add decoder_stats with "
+					"known fraction of fluxes encoded as good!");
+			} else {
+				flux_fraction_good = rhs.flux_fraction_good;
+			}
 
 			return *this;
 		}
@@ -87,9 +99,11 @@ class decoder {
 	public:
 		// Adds OK sectors to the given decoded_tracks
 		// structure.
+		// Some of these parameters are pretty hacky. Fix
+		// later (TODO).
 		decoder_stats decode(timeline & line_to_decode,
-			decoded_tracks & decoded, bool verbose,
-			bool show_stats);
+			decoded_tracks & out_decoded,
+			bool verbose, bool show_stats);
 
 		// For debugging.
 		void dump_all_to_file(

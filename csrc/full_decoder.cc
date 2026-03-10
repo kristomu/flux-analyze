@@ -265,8 +265,13 @@ decoded_tracks once_through_decoder::decode_track(
 	// in order.
 	timeslice next;
 
+	// This should be a stat of some sort...
+	std::cout << preamble_positions.size() << " address mark markers found\n";
+
 	for (size_t i = 0; i < preamble_positions.size(); ++i) {
-		std::cout << i << " of " << preamble_positions.size() << "\n";
+		if (verbose) {
+			std::cout << i << " of " << preamble_positions.size() << "\n";
+		}
 		size_t start_idx_train = preamble_positions[i].idx,
 			end_idx_train = full_decoding.data.size();
 

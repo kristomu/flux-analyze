@@ -61,10 +61,6 @@ class causal_EWMA_clock_decoder : public pulse_decoder {
 		}
 
 		void set_max_relative_change(double max_relative_change_in) {
-			if (max_relative_change < 1) {
-				throw std::invalid_argument("set_max_relative_change: "
-						"must give the maximum as a fraction of the current value, hence max_relative_change >= 1");
-			}
 			max_relative_change = max_relative_change_in;
 		}
 
@@ -74,6 +70,37 @@ class causal_EWMA_clock_decoder : public pulse_decoder {
 			const std::vector<int> & fluxes, size_t start_pos,
 			size_t end_pos, double & error_out) const;
 
+		// Initial clock is not considered a parameter here because
+		// we can do without it, and fixing an initial clock wouldn't
+		// generalize well. (TODO: Is this the right call?)
+
+		void set_params(const std::vector<double> & params) {
+			alpha = params[0];
+			ignore_lower = (int)params[1];
+			clamp = (int)params[2];
+			max_relative_change = params[3];
+		}
+
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_LOG_REAL, PARAM_INTEGER, PARAM_INTEGER, PARAM_LOG_REAL};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {0, 0, 0, 1};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {1, 1, 1, 3};
+		}
+
+		std::vector<double> get_current_params() const {
+			return {alpha, (double)((int)ignore_lower),
+							(double)((int)clamp), max_relative_change};
+		}
+
+		std::string name() const {
+			return "Causal EWMA decoder";
+		}
 };
 
 // This one doesn't work; the causal decoder is better on severely
@@ -101,4 +128,28 @@ class acausal_EWMA_clock_decoder : public pulse_decoder {
 		MFM_train_data get_MFM_train(
 			const std::vector<int> & fluxes, size_t start_pos,
 			size_t end_pos, double & error_out) const;
+
+		std::vector<param_t> get_parameter_types() const {
+			return {PARAM_LOG_REAL};
+		}
+
+		std::vector<double> get_parameter_min() const {
+			return {0};
+		}
+
+		std::vector<double> get_parameter_max() const {
+			return {1}; // For reasonable floppy types?
+		}
+
+		std::vector<double> get_current_params() const {
+			return {alpha};
+		}
+
+		void set_params(const std::vector<double> & params) {
+			alpha = params[0];
+		}
+
+		std::string name() const {
+			return "Acausal EWMA decoder";
+		}
 };

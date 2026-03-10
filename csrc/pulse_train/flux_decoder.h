@@ -24,6 +24,21 @@
 // performance is comparable... but is that even possible? It may be
 // better to just remove it... hm. I need to know what it's used for.
 
+
+// A pulse decoder may have one or more adjustable parameters, such
+// as smoothing parameters (for EWMA) or outlier thresholds. The param_t
+// type is used in a function that returns what parameters can be set and
+// what types they have, so that regions of good performance can be found
+// by automated search.
+
+// PARAM_REAL is a real value (double) on a scale from min to max inclusive.
+// PARAM_LOG_REAL is the same, but log-spaced (usually this is something
+//		multiplicative like a smoothing factor).
+// PARAM_INTEGER is an integer from min to max inclusive. Categorical
+//		or boolean variables are particular cases.
+
+typedef enum { PARAM_REAL, PARAM_LOG_REAL, PARAM_INTEGER } param_t;
+
 class pulse_decoder {
 	public:
 		virtual MFM_train_data get_MFM_train(
@@ -51,4 +66,35 @@ class pulse_decoder {
 		}
 
 		virtual ~pulse_decoder() = default;
+
+		// The following functions define the parameter space for
+		// the decoder in question, so that we can do grid search
+		// without having to know what concrete parameters are
+		// available.
+
+		virtual std::vector<param_t> get_parameter_types() const {
+			return {};
+		}
+
+		virtual std::vector<double> get_parameter_min() const {
+			return {};
+		}
+
+		virtual std::vector<double> get_parameter_max() const {
+			return {};
+		}
+
+		// Get the current parameter values.
+
+		virtual std::vector<double> get_current_params() const {
+			return {};
+		}
+
+		// Set them.
+
+		virtual void set_params(const std::vector<double> & /*params*/) {
+			throw std::invalid_argument("flux_decoder: decoder has no parameters");
+		}
+
+		virtual std::string name() const = 0;
 };
