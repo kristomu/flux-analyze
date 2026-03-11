@@ -38,8 +38,9 @@ add_executable(${PROG_NAME}
 add_executable(grid_search
 	pulse_train/alternating.cc
 	pulse_train/classical_decoders.cc
-	pulse_train/ewma.cc
 	pulse_train/dp/one_mode_dp.cc
+	pulse_train/ewma.cc
+	pulse_train/kmedian_decoder.cc
 	rabin_karp/rabin_karp.cc
 	address_marks.cc
 	crc16.cc
@@ -50,6 +51,7 @@ add_executable(grid_search
 	ordinal_search.cc
 	preambles.cc
 	sector_data.cc
+	stats/kmedian/kmedian.cc
 	timeline.cc
 	tools.cc)
 

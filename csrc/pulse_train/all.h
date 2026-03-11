@@ -6,3 +6,4 @@
 #include "alternating.h"
 #include "classical_decoders.h"
 #include "ewma.h"
+#include "kmedian_decoder.h"

@@ -1,0 +1,298 @@
+#include <algorithm>
+#include <numeric>
+#include <stdexcept>
+
+#include <limits.h>
+#include <math.h>
+
+#include "kmedian.h"
+
+/* Implement a O(kn log n) method for optimal 1D K-median. The K-median problem
+ * consists of finding k clusters so that the sum of absolute distances from
+ * each of the n points to the closest cluster is minimized.
+ *
+ * GRØNLUND, Allan, et al. Fast exact k-means, k-medians and Bregman divergence
+ * clustering in 1d. arXiv preprint arXiv:1701.07204, 2017.
+ *
+ * The points all have one of a very small range of values (compared to the
+ * number of points). Since k-medians clustering is either a point or the mean
+ * of two points, we can then do calculations with n being the number of
+ * distinct points, rather than the number of points, so that O(kn log n)
+ * becomes much quicker in concrete terms.
+ *
+ * Finding the median takes O(log n) time instead of O(1) time, which increases
+ * the constant factor in front of the kn log n term.
+ */
+
+void KCluster::setPoints(const std::vector<int> & inputPoints) {
+
+	std::vector<unsigned int> points(inputPoints.begin(),
+        inputPoints.end());
+
+	std::sort(points.begin(), points.end());
+
+	bool first = true;
+	unsigned int current = 0;
+	unsigned int count = 0;
+	unsigned long long sum = 0.0;
+	for (unsigned int point : points)
+	{
+		if (first || point != current)
+		{
+			struct CDF empty;
+			cdf.push_back(empty);
+			first = false;
+		}
+
+		sum += point;
+		count++;
+
+		auto& thiscdf = cdf.back();
+		thiscdf.pointsSoFar = count;
+		thiscdf.sumToHere = sum;
+		thiscdf.thisValue = point;
+		current = point;
+	}
+
+	uniquePoints = cdf.size();
+	initialized = true;
+}
+
+
+/* Determines the median point of all points between the ith category
+ * in cdf (inclusive), and the jth (exclusive). It's used to
+ * reconstruct clusters later.
+ */
+
+double KCluster::medianPoint(size_t i, size_t j) const {
+	if (i >= j) {
+		return 0;
+    }
+
+	unsigned int lowerCount = 0;
+	if (i > 0) {
+		lowerCount = cdf[i-1].pointsSoFar;
+    }
+	unsigned int upperCount = cdf[j-1].pointsSoFar;
+
+	/* Note, this is not the index, but number of points start inclusive,
+	 * which is why the -1 has to be turned into +1. */
+
+	double medianPoint = (lowerCount + upperCount + 1) / 2.0;
+
+	auto lowerMedian = std::lower_bound(cdf.begin(), cdf.end(),
+        (unsigned int)medianPoint,
+    	[&](const struct CDF& lhs, unsigned int rhs) {
+    		return lhs.pointsSoFar < rhs;
+    	}
+    									   );
+	if (((unsigned int)ceil(medianPoint) == (unsigned int)floor(medianPoint))
+			|| ((unsigned int)floor(medianPoint) != lowerMedian->pointsSoFar))
+		return lowerMedian->thisValue;
+	else
+		return (lowerMedian->thisValue + (lowerMedian+1)->thisValue) / 2.0;
+}
+
+/* Find the (location of the) minimum value of each row of an nxn matrix in
+ * n log n time, given that the matrix is monotone (by the definition of
+ * Grønlund et al.) and defined by a function M that takes row and column
+ * as parameters. All boundary values are closed, [minRow, maxRow]
+ * p. 197 of
+ * AGGARWAL, Alok, et al. Geometric applications of a matrix-searching
+ * algorithm. Algorithmica, 1987, 2.1-4: 195-208.
+ */
+
+void KCluster::monotoneMatrixIndices(std::function<double(size_t, size_t)>& M,
+    size_t minRow, size_t maxRow, size_t minCol, size_t maxCol,
+    std::vector<size_t>& Tout,
+    std::vector<double>& Dout) const {
+
+	if (maxRow == minRow) {
+		return;
+    }
+
+	size_t currentRow = minRow + (maxRow-minRow)/2;
+
+	/* Find the minimum column for this row. */
+
+	double minValue = INFINITY;
+	size_t minHere = minCol;
+	for (size_t i = minCol; i<=maxCol; i++) {
+		double v = M(currentRow, i);
+
+		if (v < minValue) {
+			minValue = v;
+			minHere = i;
+		}
+	}
+
+	if (Tout[currentRow]) {
+		throw std::runtime_error(
+            "KCluster::MMI: tried to set a variable already set");
+    }
+
+	Tout[currentRow] = minHere;
+	Dout[currentRow] = M(currentRow, minHere);
+
+	/* No lower row can have a minimum to the right of the current minimum.
+	 * Recurse on that assumption. */
+
+	monotoneMatrixIndices(M, minRow, currentRow, minCol, minHere+1, Tout, Dout);
+
+	/* And no higher row can have a minimum to the left. */
+
+	monotoneMatrixIndices(M, currentRow+1, maxRow, minHere, maxCol, Tout, Dout);
+}
+
+/* If item is the first cdf value with count at
+ * or above i, returns the cumulative sum up to the ith entry of the
+ * underlying sorted points list.
+ */
+
+unsigned long long KCluster::cumulativeAt(
+    std::vector<struct CDF>::const_iterator item, int i) const {
+
+	unsigned long long sumBelow = 0.0;
+	unsigned int numPointsBelow = 0;
+
+	if (item != cdf.begin()) {
+		sumBelow = (item-1)->sumToHere;
+		numPointsBelow = (item-1)->pointsSoFar;
+	}
+
+	return sumBelow + item->thisValue*(i - numPointsBelow);
+}
+
+/* Grønlund et al.'s CC function for the K-median problem.
+ *
+ * CC(i,j) is the cost of grouping points_i...points_j into one cluster
+ * with the optimal cluster point (the median point). By programming
+ * convention, the interval is half-open and indexed from 0, unlike the
+ * paper's convention of closed intervals indexed from 1.
+ *
+ * Note: i and j are indices onto weighted_cdf. So e.g. if i = 0, j = 2 and
+ * weighted cdf is [[2, 0, 0], [4, 2, 1], [5, 2, 2]], then that is the cost
+ * of clustering all points between the one described by the zeroth weighted
+ * cdf entry, and up to (but not including) the last. In other words, it's
+ * CC([0, 0, 1, 1], 0, 5).
+ */
+
+long double KCluster::CC(size_t i, size_t j) const {
+
+	if (i >= j) {
+		return 0;
+    }
+
+	unsigned int lowerCount = 0;
+    unsigned int upperCount = cdf[j-1].pointsSoFar;
+
+	if (i > 0) {
+		lowerCount = cdf[i-1].pointsSoFar;
+    }
+
+	/* Note, this is not the index, but number of points start inclusive,
+	 * which is why the -1 has to be turned into +1. */
+
+	double medianPoint = (lowerCount + upperCount + 1) / 2.0;
+
+	auto lowerMedian = std::lower_bound(cdf.begin(), cdf.end(), (int)medianPoint,
+	[&](const struct CDF& lhs, unsigned int rhs) {
+		return lhs.pointsSoFar < rhs;
+	}
+									   );
+
+	double mu;
+	if (((unsigned int)ceil(medianPoint) == (unsigned int)floor(medianPoint))
+			|| ((unsigned int)floor(medianPoint) != lowerMedian->pointsSoFar))
+		mu = lowerMedian->thisValue;
+	else
+		mu = (lowerMedian->thisValue + (lowerMedian+1)->thisValue) / 2.0;
+
+	/* Lower part: entry i to median point between i and j, median excluded. */
+
+	unsigned long long sumBelow = cumulativeAt(lowerMedian, (int)medianPoint);
+	if (i > 0)
+		sumBelow -= cdf[i-1].sumToHere;
+
+	/* Upper part: everything from the median up, including the median if it's a
+	 * real point. */
+
+	unsigned long long sumAbove = cdf[j-1].sumToHere - cumulativeAt(lowerMedian, (int)medianPoint);
+
+	return floorl(medianPoint - lowerCount)*mu - sumBelow + sumAbove - ceill(upperCount - medianPoint)*mu;
+}
+
+/* D_previous is the D vector for (i-1) clusters, or empty if i < 2.
+ * It's possible to do this even faster (and more incomprehensibly).
+ * See Grønlund et al. for that. */
+
+/* Calculate C_i[m][j] given D_previous = D[i-1]. p. 4 */
+
+long double KCluster::C_i(int i, const std::vector<double> & D_previous,
+    size_t m, size_t j) const {
+
+	long double f;
+
+	if (i == 1) {
+		f = CC(0, m);
+    } else {
+		f = D_previous[std::min(j, m)] + CC(j, m);
+    }
+
+	return f;
+}
+
+/* Calculates the optimal cluster centres for the points. */
+
+std::vector<double> KCluster::optimalKMedian(int numClusters) {
+
+    if (!initialized) {
+        throw std::runtime_error("optimalKMedian: got no data to work with!");
+    }
+
+	std::vector<std::vector<size_t>> T(
+        numClusters+1, std::vector<size_t>(uniquePoints+1, 0));
+	std::vector<std::vector<double>> D(
+        numClusters+1, std::vector<double>(uniquePoints+1, 0.0));
+
+	for (int i = 1; i < numClusters+1; i++) {
+		/* Stop if we achieve optimal clustering with fewer clusters than the
+		 * user asked for. */
+
+		std::vector<double>& lastD = D[i-1];
+		if ((i != 1) && (lastD.back() == 0.0))
+			continue;
+
+		std::function<double(size_t, size_t)> M = [&](size_t m, size_t j) {
+			return C_i(i, lastD, m, j);
+		};
+
+		monotoneMatrixIndices(M, i, uniquePoints+1, i-1, uniquePoints+1,
+							  T[i], D[i]);
+	}
+
+	/* Backtrack. The last cluster has to encompass everything, so the
+	 * rightmost boundary of the last cluster is the last point in the
+	 * array, hence given by the last position of T. Then the previous
+	 * cluster transition boundary is given by where that cluster starts,
+	 * and so on.
+	 */
+
+	size_t currentClusteringRange = uniquePoints;
+	std::vector<double> centers;
+
+	for (int i=numClusters; i>0; i--)
+	{
+		size_t newClusteringRange = T[i][currentClusteringRange];
+
+		/* Reconstruct the cluster that's the median point between
+		 * new_cluster_range and cur_clustering_range. */
+
+		centers.push_back(
+            medianPoint(newClusteringRange, currentClusteringRange));
+		currentClusteringRange = newClusteringRange;
+	}
+
+	std::sort(centers.begin(), centers.end());
+	return centers;
+}
