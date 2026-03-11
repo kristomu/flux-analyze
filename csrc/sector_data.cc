@@ -73,8 +73,14 @@ sector_data decode_MFM_train(const MFM_train_data & MFM_train,
 				break;
 			case 3: // RR
 				// This shouldn't happen.
-				throw std::runtime_error("RR stabilization failed!");
-				break;
+				// For now, just skip it; I think that's
+				// what a real floppy disk controller does.
+				// Just skipping lets us handle obviously wrong
+				// output from MFM decoders (as in, say,
+				// produced by setting its parameters to
+				// values that make no sense), even though
+				// it's not ideal from a purity perspective.
+				continue;
 		}
 		bits_output++;
 		beginning = false;

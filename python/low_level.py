@@ -200,7 +200,7 @@ def ordinal_search_for_pattern(haystack_pattern, needle_flux_delays):
 	# Adjust all match locations to account for the initial run
 	# of wildcards, if any. Cast to integer because positions are,
 	# by their nature, integers.
-	return (matches - needle_wild_count).astype(np.int)
+	return (matches - needle_wild_count).astype(int)
 
 # Pruning: suppose we've found some ordinal pattern matches derived from an
 # assignment flux pattern of [1, 3, 2, 1]. Then we know that the first pulse
@@ -264,7 +264,7 @@ def search_for_pattern(haystack_flux_delays, needle_assignments):
 		needle_assignments, ordinal_matches)
 
 	# Explicitly cast to int because empty np arrays default to float.
-	return np.array(filtered_matches).astype(np.int)
+	return np.array(filtered_matches).astype(int)
 
 def search_for_patterns(haystack_flux_delays, needles_assignments):
 	return [ search_for_pattern(haystack_flux_delays, x) for x in \

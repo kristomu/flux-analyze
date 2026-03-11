@@ -1,0 +1,162 @@
+Here's some information on how many sectors in total as well as good sectors
+the Python version detects for a few common test tracks, as well as a comment
+showing the best grid-search result so far. Note the relatively strong
+performance of corrupted sector detection, which is basically an approximate
+string search on the MFM train representation of the A1A1A1F* preamble sequence.
+
+Also note that even without dewarping, the Python implementation finds a
+good sector for 77-4-t78. The "brute-forced band" strategy, which tries to
+fit three frequency bands for 01, 001, and 0001, so that there are no MFM
+errors upon decoding and so that the AM decodes properly, really does work
+well.
+
+No once-through decoder I've tested can find even a single good sector for
+t78; I think the problem lies in its once-through nature, as the extreme
+noise in one sector can throw off the mean for the next sector.
+
+-
+
+	In [1]: demonstrate("../tracks/RETRY-77-4-t69.0.au")
+
+	(...progress messages skipped...)
+
+	Without brute-forcing:
+			Valid CRC chunks: 2878	Invalid: 633	Fraction valid: 0.820
+			Number of sectors: 17	Good sectors: 15
+
+			80% of the floppy data was decoded.
+
+	With brute-forcing (no dewarping):
+			Valid CRC chunks: 2992	Invalid: 519	Fraction valid: 0.852
+			Number of sectors: 18	Good sectors: 17
+
+			79% of the floppy data was decoded.
+
+	With brute-forcing and corrupted sector detection:
+			Valid CRC chunks: 4169	Invalid: 407	Fraction valid: 0.911
+			Number of sectors: 21	Good sectors: 20
+
+			80% of the floppy data was decoded.
+
+In comparison, the best grid search result with once-through strategy
+(where the whole flux record is decoded at once) is one-mode DP with
+			Number of sectors: 20	Bood sectors: 17,
+and this seems to be a fluke. More reliable results give 16/20.
+So we can meet brute-forcing, but not surpass it. However, the once-
+through decoders are quite good at finding start-of-sector metadata;
+even though we only get 16 good sectors, they find 20 in total, which
+is more than brute-force without dewarping does.
+
+
+	In [2]: demonstrate("../tracks/RETRY-77-4-t73.0.au")
+
+	(...progress messages skipped...)
+
+	Without brute-forcing:
+			Valid CRC chunks: 1473	Invalid: 1162	Fraction valid: 0.559
+			Number of sectors: 13	Good sectors: 7
+
+			51% of the floppy data was decoded.
+
+	With brute-forcing (no dewarping):
+			Valid CRC chunks: 1703	Invalid: 932	Fraction valid: 0.646
+			Number of sectors: 13	Good sectors: 7
+
+			50% of the floppy data was decoded.
+
+	With brute-forcing and corrupted sector detection:
+			Valid CRC chunks: 2475	Invalid: 699	Fraction valid: 0.780
+			Number of sectors: 14	Good sectors: 9
+
+			51% of the floppy data was decoded.
+
+The winner with once-through strategy for this particular track is the
+causal EWMA decoder with
+			Number of sectors: 19	Good sectors: 8
+Again we meet or pass brute-forcing without dewarping; again it finds
+a rather large number of sector-start metadata parts. But every pulse
+decoder has trouble getting good sectors. Perhaps we need corrupt preamble
+detection (i.e. no longer doing everything "once-through").
+
+
+	In [2]: demonstrate("../RETRY-77-4-t77.0.hard.au")
+
+	(...progress messages skipped...)
+
+	Without brute-forcing:
+			Valid CRC chunks: 160	Invalid: 370	Fraction valid: 0.302
+			Number of sectors: 2	Good sectors: 0
+
+			21% of the floppy data was decoded.
+
+	With brute-forcing (no dewarping):
+			Valid CRC chunks: 259	Invalid: 271	Fraction valid: 0.489
+			Number of sectors: 3	Good sectors: 0
+
+			20% of the floppy data was decoded.
+
+	With brute-forcing and corrupted sector detection:
+			Valid CRC chunks: 775	Invalid: 241	Fraction valid: 0.763
+			Number of sectors: 7	Good sectors: 2
+
+			20% of the floppy data was decoded.
+
+This is not part of my standard test track list, so I've got nothing
+to compare to.
+
+
+	In [3]: demonstrate("../tracks/RETRY-77-4-t78.0.au")
+
+	(...progress messages skipped...)
+
+	Without brute-forcing:
+			Valid CRC chunks: 117	Invalid: 418	Fraction valid: 0.219
+			Number of sectors: 2	Good sectors: 0
+
+			12% of the floppy data was decoded.
+
+	With brute-forcing (no dewarping):
+			Valid CRC chunks: 218	Invalid: 317	Fraction valid: 0.407
+			Number of sectors: 2	Good sectors: 1
+
+			12% of the floppy data was decoded.
+
+	With brute-forcing and corrupted sector detection:
+			Valid CRC chunks: 509	Invalid: 283	Fraction valid: 0.643
+			Number of sectors: 6	Good sectors: 1
+
+			12% of the floppy data was decoded.
+
+Once-through fails completely: none of the pulse decoders manage to
+get even a single good sector. I suspect the problem lies in some
+sectors being so corrupted that they drag the clock away from any
+reasonable estimate, and that the decoders then have no way to get back
+to a good estimate for the next sector.
+
+
+	In [4]: demonstrate("../msplus_warped.au")
+
+	(...progress messages skipped...)
+
+	Without brute-forcing:
+			Valid CRC chunks: 2072	Invalid: 50	Fraction valid: 0.976
+			Number of sectors: 21	Good sectors: 21
+
+			91% of the floppy data was decoded.
+
+	With brute-forcing (no dewarping):
+			Valid CRC chunks: 2117	Invalid: 5	Fraction valid: 0.998
+			Number of sectors: 21	Good sectors: 21
+
+			91% of the floppy data was decoded.
+
+	With brute-forcing and corrupted sector detection:
+			Valid CRC chunks: 2117	Invalid: 5	Fraction valid: 0.998
+			Number of sectors: 21	Good sectors: 21
+
+			91% of the floppy data was decoded.
+
+The EWMA decoders reach 21/21 pretty effortlessly here, and also
+get 89% of the floppy data classified as good. I think the percentage
+as counted by Python is different from (and usually higher than) the
+C++ results, so this is pretty good.
