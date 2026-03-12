@@ -22,6 +22,7 @@ add_executable(${PROG_NAME}
 	pulse_train/classical_decoders.cc
 	pulse_train/ewma.cc
 	pulse_train/dp/one_mode_dp.cc
+	pulse_train/offset_clock.cc
 	rabin_karp/rabin_karp.cc
 	address_marks.cc
 	crc16.cc
@@ -41,6 +42,7 @@ add_executable(grid_search
 	pulse_train/dp/one_mode_dp.cc
 	pulse_train/ewma.cc
 	pulse_train/kmedian_decoder.cc
+	pulse_train/offset_clock.cc
 	rabin_karp/rabin_karp.cc
 	address_marks.cc
 	crc16.cc

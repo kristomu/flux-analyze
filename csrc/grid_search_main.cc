@@ -42,7 +42,10 @@ void do_grid_search(
 
 	if (pos == current_params.size()) {
 		// We've set all parameters; do a test.
-		pulse_decoder->set_params(current_params);
+		// But don't do it if there are no parameters to set.
+		if (pos != 0) {
+			pulse_decoder->set_params(current_params);
+		}
 		decoded_tracks all_decoded_images = full_decoder.decode_floppy(flux_records);
 
 		bool revealed = false;
@@ -189,6 +192,11 @@ int main(int argc, char ** argv) {
 		std::make_shared<constant_clock_decoder>();
 	std::shared_ptr<historical_EWMA_decoder> historical =
 		std::make_shared<historical_EWMA_decoder>();
+	// TODO: Grid search: if no parameters, run the decoder *once*.
+	std::shared_ptr<kmedian_decoder> kmdecoder =
+		std::make_shared<kmedian_decoder>();
+	std::shared_ptr<offset_clock_decoder> occd =
+		std::make_shared<offset_clock_decoder>();
 	cacd->set_initial_clock(24);
 	acacd->set_initial_clock(24);
 	//p_decoder->set_alpha(0.01);
@@ -204,6 +212,8 @@ int main(int argc, char ** argv) {
 	pulse_decoders.push_back(constant_clock);
 	pulse_decoders.push_back(orig_causal_clock);
 	pulse_decoders.push_back(historical);
+	pulse_decoders.push_back(occd);
+	pulse_decoders.push_back(kmdecoder);
 	std::reverse(pulse_decoders.begin(), pulse_decoders.end());
 
 	// TODO: Grid search only tests one sector. We should only accept one
