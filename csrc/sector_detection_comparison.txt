@@ -40,7 +40,7 @@ noise in one sector can throw off the mean for the next sector.
 
 In comparison, the best grid search result with once-through strategy
 (where the whole flux record is decoded at once) is one-mode DP with
-			Number of sectors: 20	Bood sectors: 17,
+			Number of sectors: 20	Good sectors: 17,
 and this seems to be a fluke. More reliable results give 16/20.
 So we can meet brute-forcing, but not surpass it. However, the once-
 through decoders are quite good at finding start-of-sector metadata;

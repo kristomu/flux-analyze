@@ -36,7 +36,7 @@ add_executable(${PROG_NAME}
 	timeline.cc
 	tools.cc)
 
-add_executable(grid_search
+add_executable(grid-search
 	pulse_train/alternating.cc
 	pulse_train/classical_decoders.cc
 	pulse_train/dp/one_mode_dp.cc
@@ -44,6 +44,7 @@ add_executable(grid_search
 	pulse_train/kmedian_decoder.cc
 	pulse_train/offset_clock.cc
 	rabin_karp/rabin_karp.cc
+	pulse_train/variable_offset.cc
 	address_marks.cc
 	crc16.cc
 	decoder.cc

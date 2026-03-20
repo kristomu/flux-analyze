@@ -8,3 +8,4 @@
 #include "ewma.h"
 #include "kmedian_decoder.h"
 #include "offset_clock.h"
+#include "variable_offset.h"
