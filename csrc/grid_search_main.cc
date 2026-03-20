@@ -29,6 +29,47 @@
 
 #include "crc16.h"
 
+void print_stats(std::string test_configuration_name,
+	const std::vector<double> & current_params,
+	const decoded_tracks & all_decoded_images) {
+
+	bool revealed = false;
+
+	// Output the performance figures.
+	// This is very ugly and I have to think of a better way to do it. In particular,
+	// if we don't recover any sectors, we should still provide stats about the track
+	// in question.
+
+	for (const std::pair<int, decoder_stats> stats_pairs: all_decoded_images.stats_per_track) {
+		std::cout << test_configuration_name << ":\t"
+			<< "Track " << stats_pairs.first << ": "
+			<< stats_pairs.second.num_recovered_sectors << " of "
+			<< stats_pairs.second.num_sectors << " sectors recovered.\n";
+
+		// Semicolon-separated values.
+		// First the outcome (so we can sort regardless of parameter space)...
+		std::cout << test_configuration_name << ";";
+		std::cout << stats_pairs.second.num_recovered_sectors
+			<< ";" << stats_pairs.second.num_sectors
+			<< ";" << stats_pairs.second.flux_fraction_good << ";";
+		// Then the parameters.
+		std::copy(current_params.begin(), current_params.end(),
+			std::ostream_iterator<double>(std::cout, ";"));
+		std::cout << "\n";
+
+		revealed = true;
+	}
+
+	if (!revealed) {
+		std::cout << test_configuration_name << ";";
+		std::cout << 0 << ";" << 0
+			<< ";" << "N/A" << ";";
+		std::copy(current_params.begin(), current_params.end(),
+			std::ostream_iterator<double>(std::cout, ";"));
+		std::cout << "\n";
+	}
+}
+
 void do_grid_search(
 	const std::vector<flux_record> & flux_records,
 	const once_through_decoder & full_decoder,
@@ -48,38 +89,8 @@ void do_grid_search(
 		}
 		decoded_tracks all_decoded_images = full_decoder.decode_floppy(flux_records);
 
-		bool revealed = false;
-
-		// Output the performance figures.
-
-		for (const std::pair<int, decoder_stats> stats_pairs: all_decoded_images.stats_per_track) {
-			std::cout << pulse_decoder->name() << ":\t"
-				<< "Track " << stats_pairs.first << ": "
-				<< stats_pairs.second.num_recovered_sectors << " of "
-				<< stats_pairs.second.num_sectors << " sectors recovered.\n";
-
-			// Semicolon-separated values.
-			// First the outcome (so we can sort regardless of parameter space)...
-			std::cout << pulse_decoder->name() << ";";
-			std::cout << stats_pairs.second.num_recovered_sectors
-				<< ";" << stats_pairs.second.num_sectors
-				<< ";" << stats_pairs.second.flux_fraction_good << ";";
-			// Then the parameters.
-			std::copy(current_params.begin(), current_params.end(),
-				std::ostream_iterator<double>(std::cout, ";"));
-			std::cout << "\n";
-
-			revealed = true;
-		}
-
-		if (!revealed) {
-			std::cout << pulse_decoder->name() << ";";
-			std::cout << 0 << ";" << 0
-				<< ";" << "N/A" << ";";
-			std::copy(current_params.begin(), current_params.end(),
-				std::ostream_iterator<double>(std::cout, ";"));
-			std::cout << "\n";
-		}
+		print_stats(pulse_decoder->name(), current_params,
+			all_decoded_images);
 
 		return; // TODO: return some objective value
 	}
@@ -130,7 +141,7 @@ void do_grid_search(
 
 	std::vector<double> current_params(num_params, 0);
 
-	int desired_total_numiters = 1600;
+	int desired_total_numiters = 16000;
 	int stepsize_guess = 2;
 
 	std::vector<int> stepsizes(num_params);
@@ -197,6 +208,8 @@ int main(int argc, char ** argv) {
 		std::make_shared<kmedian_decoder>();
 	std::shared_ptr<offset_clock_decoder> occd =
 		std::make_shared<offset_clock_decoder>();
+	std::shared_ptr<GD_variable_offset_decoder> gdvod =
+		std::make_shared<GD_variable_offset_decoder>();
 	cacd->set_initial_clock(24);
 	acacd->set_initial_clock(24);
 	//p_decoder->set_alpha(0.01);
@@ -206,14 +219,15 @@ int main(int argc, char ** argv) {
 
 	std::vector<std::shared_ptr<pulse_decoder> > pulse_decoders;
 	//pulse_decoders.push_back(omd);
-	pulse_decoders.push_back(AEC);
+	/*pulse_decoders.push_back(AEC);
 	pulse_decoders.push_back(cacd);
 	pulse_decoders.push_back(acacd);
 	pulse_decoders.push_back(constant_clock);
 	pulse_decoders.push_back(orig_causal_clock);
-	pulse_decoders.push_back(historical);
+	pulse_decoders.push_back(historical);*/
 	pulse_decoders.push_back(occd);
 	pulse_decoders.push_back(kmdecoder);
+	pulse_decoders.push_back(gdvod);
 	std::reverse(pulse_decoders.begin(), pulse_decoders.end());
 
 	// TODO: Grid search only tests one sector. We should only accept one
@@ -234,6 +248,13 @@ int main(int argc, char ** argv) {
 
 	std::vector<flux_record> flux_records =
 		get_flux_record(flux_filename, true);
+
+	// First print the performance of the ordinal search approach.
+
+	decoded_tracks all_decoded_images = ofd.decode_floppy(flux_records);
+
+	print_stats("Ordinal search default", {},
+		all_decoded_images);
 
 	for (std::shared_ptr<pulse_decoder> p_decoder: pulse_decoders) {
 		do_grid_search(flux_records, p_decoder);

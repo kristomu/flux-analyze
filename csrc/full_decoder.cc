@@ -71,6 +71,9 @@ decoded_tracks ordinal_full_decoder::decode_track(
 	// in order.
 	timeslice next;
 
+	// This should be a stat of some sort...
+	std::cout << matches.size() << " address mark markers found\n";
+
 	// We need to include a first timeslice covering everything
 	// from the start of the flux record to the first match, even
 	// if we don't know what's in there. This is necessary to make
