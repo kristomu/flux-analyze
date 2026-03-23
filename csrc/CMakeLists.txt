@@ -58,11 +58,7 @@ add_executable(grid-search
 	timeline.cc
 	tools.cc)
 
-add_executable(mfm_dp_test
-	flux_record.cc
-	dp/mfm_dp_test.cc)
-
-add_executable(copy_flux
+add_executable(copy-flux
 	copy_flux.cc)
 
 # Add SQLite and zlib libraries, as well as the generated protobuf
@@ -76,6 +72,5 @@ set(ProtobufIncludePath ${CMAKE_CURRENT_BINARY_DIR}
 
 include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} ${ProtobufIncludePath})
 target_link_libraries( ${PROG_NAME} fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
-target_link_libraries( grid_search fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
-target_link_libraries( mfm_dp_test fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
-target_link_libraries( copy_flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+target_link_libraries( grid-search fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+target_link_libraries( copy-flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
