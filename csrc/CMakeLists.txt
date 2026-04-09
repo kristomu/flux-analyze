@@ -37,14 +37,17 @@ add_executable(${PROG_NAME}
 	tools.cc)
 
 add_executable(grid-search
+	ewma_search/ewma_search.cc
+	ewma_search/ewma.cc
 	pulse_train/alternating.cc
 	pulse_train/classical_decoders.cc
 	pulse_train/dp/one_mode_dp.cc
 	pulse_train/ewma.cc
 	pulse_train/kmedian_decoder.cc
 	pulse_train/offset_clock.cc
-	rabin_karp/rabin_karp.cc
+	pulse_train/stepwise_ewma.cc
 	pulse_train/variable_offset.cc
+	rabin_karp/rabin_karp.cc
 	address_marks.cc
 	crc16.cc
 	decoder.cc
