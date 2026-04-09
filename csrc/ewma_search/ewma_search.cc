@@ -139,10 +139,11 @@ interval get_boundary(
 std::pair<int, interval> ewma_search(
 	const std::vector<int> & haystack,
 	const std::vector<int> & half_clock_needle,
+	size_t haystack_pos,
 	double alpha, double tolerance) {
 
 	// If the needle is too long, we obviously can't have a match.
-	if (half_clock_needle.size() > haystack.size()) {
+	if (haystack_pos + half_clock_needle.size() > haystack.size()) {
 		return {-1, IMPOSSIBLE_INTERVAL};
 	}
 
@@ -171,7 +172,7 @@ std::pair<int, interval> ewma_search(
 
 	}
 
-	for (size_t i = 0; i < haystack.size() - half_clock_needle.size(); ++i) {
+	for (size_t i = haystack_pos; i < haystack.size() - half_clock_needle.size(); ++i) {
 
 		interval current_interval;
 
@@ -247,4 +248,41 @@ std::pair<int, interval> ewma_search(
 	}
 
 	return {-1, IMPOSSIBLE_INTERVAL};
+}
+
+std::pair<int, interval> ewma_search(
+	const std::vector<int> & haystack,
+	const std::vector<int> & half_clock_needle,
+	double alpha, double tolerance) {
+
+	return ewma_search(haystack, half_clock_needle, 0,
+		alpha, tolerance);
+}
+
+std::vector<std::pair<int, interval> > ewma_search_all(
+	const std::vector<int> & haystack,
+	const std::vector<int> & half_clock_needle,
+	double alpha, double tolerance) {
+
+	size_t next = 0;
+
+	std::vector<std::pair<int, interval> > matches;
+
+	while (next < haystack.size()) {
+		std::pair<int, interval> next_match =
+			ewma_search(haystack, half_clock_needle,
+				next, alpha, tolerance);
+
+		if (next_match.first != -1) {
+			next = next_match.first + 1;
+			matches.push_back(next_match);
+		} else {
+			// We've searched through everything, so
+			// next position is at the end of the
+			// haystack.
+			next = haystack.size();
+		}
+	}
+
+	return matches;
 }

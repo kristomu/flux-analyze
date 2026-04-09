@@ -49,7 +49,7 @@ std::pair<double, double> ewma_margin (
 	bool possible_match = true;
 
 	double lower_divergence = std::numeric_limits<double>::infinity(),
-		upper_divergence = -std::numeric_limits<double>::infinity();
+		upper_divergence = std::numeric_limits<double>::infinity();
 
 	for (size_t j = 0; j < half_clock_needle.size() && possible_match; ++j) {
 

@@ -29,4 +29,15 @@ const interval INDETERMINATE_INTERVAL = interval(2, -2);
 std::pair<int, interval> ewma_search(
 	const std::vector<int> & haystack,
 	const std::vector<int> & half_clock_needle,
+	size_t haystack_pos,
+	double alpha, double tolerance);
+
+std::pair<int, interval> ewma_search(
+	const std::vector<int> & haystack,
+	const std::vector<int> & half_clock_needle,
+	double alpha, double tolerance);
+
+std::vector<std::pair<int, interval> > ewma_search_all(
+	const std::vector<int> & haystack,
+	const std::vector<int> & half_clock_needle,
 	double alpha, double tolerance);
