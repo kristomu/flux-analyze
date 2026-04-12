@@ -16,27 +16,24 @@
 // detect preambles and fix the clock in case it got skewed by earlier
 // drift or outliers. As such, it's not very useful standalone.
 
-// It doesn't support outlier truncation, but it will clamp output
-// half-clocks (number of zero bits) to [1...4], just like ordinary
-// EWMA does.
+// ewma_search doesn't support outlier truncation or clamping, but the
+// decoder does, since it's just standard EWMA. Implementing clamping
+// should be relatively easy.
 
 class stepwise_EWMA_decoder : public pulse_decoder {
 	private:
+		// Double source of truth - TODO: do something about it?
 		double alpha;
+
 		std::vector<std::pair<int, interval> > initial_clocks;
 
 		double tolerance = 1e-10;
-
-		double max_relative_change = -1;
-
-		bool ignore_lower = false;
-		bool clamp = true;
 
 		/*bool are_initial_clocks_set() const {
 			return !initial_clock.empty(); }*/
 
 		// decodes each piece
-		causal_EWMA_clock_decoder piece_decoder;
+		mutable causal_EWMA_clock_decoder piece_decoder;
 
 	public:
 		using pulse_decoder::get_MFM_train;
@@ -50,22 +47,19 @@ class stepwise_EWMA_decoder : public pulse_decoder {
 
 		void set_alpha(double alpha_in) {
 			alpha = alpha_in;
-		}
-
-		void clear_initial_clocks() {
-			initial_clocks.clear();
+			piece_decoder.set_alpha(alpha);
 		}
 
 		void set_ignore_lower(bool ignore_lower_in) {
-			ignore_lower = ignore_lower_in;
+			piece_decoder.set_ignore_lower(ignore_lower_in);
 		}
 
 		void set_clamp(bool clamp_in) {
-			clamp = clamp_in;
+			piece_decoder.set_clamp(clamp_in);
 		}
 
 		void set_max_relative_change(double max_relative_change_in) {
-			max_relative_change = max_relative_change_in;
+			piece_decoder.set_max_relative_change(max_relative_change_in);
 		}
 
 		stepwise_EWMA_decoder() : stepwise_EWMA_decoder(0.5) {
@@ -81,16 +75,12 @@ class stepwise_EWMA_decoder : public pulse_decoder {
 		// generalize well. (TODO: Is this the right call?)
 
 		void set_params(const std::vector<double> & params) {
-			alpha = params[0];
-			ignore_lower = (int)params[1];
-			clamp = (int)params[2];
-			max_relative_change = params[3];
-
+			alpha = params[0]; // since we need to know it
 			piece_decoder.set_params(params);
 		}
 
 		std::vector<param_t> get_parameter_types() const {
-			return {PARAM_LOG_REAL, PARAM_INTEGER, PARAM_INTEGER, PARAM_LOG_REAL};
+			return {PARAM_REAL, PARAM_INTEGER, PARAM_INTEGER, PARAM_LOG_REAL};
 		}
 
 		std::vector<double> get_parameter_min() const {
@@ -102,8 +92,7 @@ class stepwise_EWMA_decoder : public pulse_decoder {
 		}
 
 		std::vector<double> get_current_params() const {
-			return {alpha, (double)((int)ignore_lower),
-							(double)((int)clamp), max_relative_change};
+			return piece_decoder.get_current_params();
 		}
 
 		std::string name() const {
