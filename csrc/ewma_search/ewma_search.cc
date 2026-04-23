@@ -62,7 +62,7 @@ interval get_boundary(
 			high = mid;
 		}
 
-		if (margin == IMPOSSIBLE || high-low < 1e-10) {
+		if (margin == IMPOSSIBLE) {
 			return IMPOSSIBLE_INTERVAL; // or exception?
 		}
 

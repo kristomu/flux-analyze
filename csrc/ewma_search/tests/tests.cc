@@ -83,3 +83,33 @@ TEST(EWMASearch, EmptyNeedleNotMatched) {
 	EXPECT_EQ(ewma_search(haystack, needle, 0.1, test_tolerance),
 		NO_EWMA_MATCH);
 }
+
+
+TEST(EWMASearch, HandleSingleInterval) {
+
+	// ewma_search should return the single value of alpha
+	// that will match when only a single value will work.
+	// This tests that get_boundary will find an initial
+	// valid point down to machine epsilon, not just to the
+	// given tolerance.
+
+	std::vector<int> haystack = {21, 21, 0};
+	std::vector<int> needle = {4, 3};
+	double alpha = -2.00089e-11;
+
+	EXPECT_EQ(ewma_search(haystack, needle, alpha, test_tolerance).first,
+		0);
+}
+
+TEST(EWMASearch, HandleSingleIntervalShort) {
+
+	// Since the match is with a two-size needle and starts at 0,
+	// it shouldn't matter if the haystack is also just two entries.
+
+	std::vector<int> haystack = {21, 21};
+	std::vector<int> needle = {4, 3};
+	double alpha = -2.00089e-11;
+
+	EXPECT_EQ(ewma_search(haystack, needle, alpha, test_tolerance).first,
+		0);
+}
