@@ -68,7 +68,13 @@ add_executable(grid-search
 add_executable(run-tests
 	ewma_search/ewma.cc
 	ewma_search/ewma_search.cc
-	ewma_search/ewma_test.cc)
+	ewma_search/tests/tests.cc)
+
+add_executable(fuzz-ewma
+	ewma_search/ewma.cc
+	ewma_search/ewma_search.cc
+	ewma_search/tests/test.cc
+	ewma_search/tests/fuzz.cc)
 
 add_executable(copy-flux
 	copy_flux.cc)
