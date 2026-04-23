@@ -15,7 +15,11 @@ find_package(ZLIB REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Protobuf REQUIRED)
 
+find_package(GTest REQUIRED) # EWMA Search tests
+
 add_subdirectory(protobuf)
+
+enable_testing()
 
 add_executable(${PROG_NAME}
 	pulse_train/alternating.cc
@@ -61,6 +65,11 @@ add_executable(grid-search
 	timeline.cc
 	tools.cc)
 
+add_executable(run-tests
+	ewma_search/ewma.cc
+	ewma_search/ewma_search.cc
+	ewma_search/ewma_test.cc)
+
 add_executable(copy-flux
 	copy_flux.cc)
 
@@ -77,3 +86,5 @@ include_directories( ${ZLIB_INCLUDE_DIRS} ${SQLite3_INCLUDE_DIRS} ${ProtobufIncl
 target_link_libraries( ${PROG_NAME} fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
 target_link_libraries( grid-search fl2_protobuf ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
 target_link_libraries( copy-flux ${ZLIB_LIBRARIES} ${SQLite3_LIBRARIES} )
+
+target_link_libraries(run-tests GTest::gtest_main)

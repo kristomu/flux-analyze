@@ -54,4 +54,10 @@ class interval {
 			shrink_bounds(lower_in, upper_in);
 		}
 
+		bool operator==(const interval & other) const {
+			return (is_set == other.is_set &&
+				lower_clock == other.lower_clock &&
+				upper_clock == other.upper_clock);
+		}
+
 };

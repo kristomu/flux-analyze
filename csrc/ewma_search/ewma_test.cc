@@ -7,6 +7,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include <gtest/gtest.h>
+
 #include "interval.h"
 #include "ewma.h"
 #include "ewma_search.h"
@@ -30,8 +32,8 @@ std::pair<int, interval> brute_force_ewma_search(
 			" of zero are not supported.");
 		}
 		if (half_clock_needle[i] < 0) {
-			throw std::invalid_argument("Negative needle values");
-			" are not supported.";
+			throw std::invalid_argument("Negative needle values"
+			" are not supported.");
 		}
 	}
 
@@ -121,8 +123,8 @@ std::pair<int, interval> half_brute_force_ewma_search(
 			" of zero are not supported.");
 		}
 		if (half_clock_needle[i] < 0) {
-			throw std::invalid_argument("Negative needle values");
-			" are not supported.";
+			throw std::invalid_argument("Negative needle values"
+			" are not supported.");
 		}
 	}
 
@@ -296,69 +298,81 @@ void run_test(const std::vector<int> & haystack,
 	}
 }*/
 
-// TODO: use a proper test runner
-void run_selected_tests() {
+// Do some tests
 
-	double tolerance = 1e-10;
+const double test_tolerance = 1e-10;
 
+TEST(EWMASearch, DivisionByZeroTest) {
 	// If needle is zero at any point, taking it at face value will lead
 	// to a divide by zero when calculating the ideal clock.
-
-	std::cout << "Division by zero test\n";
 
 	std::vector<int> haystack = {1, 2, 3, 4};
 	std::vector<int> needle = {0};
 
-	try {
-		ewma_search(haystack, needle, 0.5, tolerance);
-	} catch (std::invalid_argument e) {
-		std::cout << "\texception (OK)\n";
-	}
+	EXPECT_THROW(
+		ewma_search(haystack, needle, 0.5, test_tolerance),
+		std::invalid_argument);
+}
 
+TEST(EWMASearch, LongerNeedleThanHaystack) {
 	// This caused a memory access error due to a bug. Fixed.
 
-	std::cout << "[MEM] Longer needle than haystack\n";
+	std::vector<int> needle = std::vector<int>({1, 2, 3, 4});
+	std::vector<int> haystack = std::vector<int>({0});
 
-	needle = std::vector<int>({1, 2, 3, 4});
-	haystack = std::vector<int>({0});
+	// Expect no match.
 
-	ewma_search(haystack, needle, 0.5, tolerance);
+	EXPECT_EQ(
+		ewma_search(haystack, needle, 0.5, test_tolerance),
+		NO_EWMA_MATCH);
+}
 
-	std::cout << "Very small alpha test (lower bound)\n";
-
-	// Extreme values of alpha can lead get_boundary to hang
+TEST(EWMASearch, VerySmallAlphaHang) {
+	// Extreme values of alpha could lead get_boundary to hang
 	// when determining the lower or upper boundaries or its
 	// midpoint.
 
 	double alpha_bugged = 2.64611e-313;
-	haystack = std::vector<int>({16580592, 0});
-	needle = std::vector<int>({19});
+	std::vector<int> haystack = std::vector<int>({16580592, 0});
+	std::vector<int> needle = std::vector<int>({19});
 
-	ewma_search(haystack, needle, alpha_bugged, tolerance);
+	// Expect the first match to be on index zero, because it's
+	// always possible to adjust the clocks so that a length one
+	// needle matches.
+
+	EXPECT_EQ( ewma_search(haystack, needle, alpha_bugged,
+		test_tolerance).first, 0);
+}
+
+TEST(EWMASearch, NegativeNeedlesNotHandled) {
 
 	// Negative needles can cause misses due to the way bounds
 	// assume that needles are nonnegative. Thus we skip them
 	// entirely.
 
-	std::cout << "Negative needle test (trivial hit)\n";
+	std::vector<int> haystack = std::vector<int>({-1, 16777215});
+	std::vector<int> needle = std::vector<int>({-1});
 
-	haystack = std::vector<int>({-1, 16777215});
-	needle = std::vector<int>({-1});
-
-	try {
-		ewma_search(haystack, needle, 0.1, tolerance);
-		std::cout << "\tfail\n";
-	} catch (std::invalid_argument e) {
-		std::cout << "OK\n";
-	}
-
-	// An empty needle would cause a bug.
-
-	needle = std::vector<int>({});
-	haystack = std::vector<int>({1});
-
-	ewma_search(haystack, needle, 0.1, tolerance);
+	EXPECT_THROW(
+		ewma_search(haystack, needle, 0.1, test_tolerance),
+		std::invalid_argument);
 }
+
+TEST(EWMASearch, EmptyNeedleNotMatched) {
+
+	// By convention, I don't want empty needles to match.
+	// (Maybe change this later; it shouldn't matter much in
+	// any case. What's important is that it doesn't hang or
+	// crash anything.)
+
+	std::vector<int> haystack = std::vector<int>({1});
+	std::vector<int> needle = std::vector<int>({});
+
+	EXPECT_EQ(ewma_search(haystack, needle, 0.1, test_tolerance),
+		NO_EWMA_MATCH);
+}
+
+// TODO: Move the stuff below elsewhere.
 
 extern "C" int LLVMFuzzerTestOneInput(const char *Data, long long Size) {
 	// The data we need is
@@ -428,7 +442,7 @@ extern "C" int LLVMFuzzerTestOneInput(const char *Data, long long Size) {
 	try {
 		search_result = ewma_search(
 			haystack, needle, alpha, tolerance);
-	} catch (std::invalid_argument e) {
+	} catch (const std::invalid_argument & e) {
 		// anticipated error
 		search_result = {-1, interval()};
 	}
@@ -442,12 +456,10 @@ extern "C" int LLVMFuzzerTestOneInput(const char *Data, long long Size) {
 			brute_result = brute_force_ewma_search(
 			haystack, needle, alpha);
 		}
-	} catch (std::invalid_argument e) {
+	} catch (const std::invalid_argument & e) {
 		// anticipated error
 		brute_result = {-1, interval()};
 	}
-
-	bool failure = false;
 
 	if (brute_result.first == -1) {
 		return 0;

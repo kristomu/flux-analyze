@@ -21,6 +21,8 @@ const interval IMPOSSIBLE_INTERVAL = interval(1, -1);
 // Can't be found due to numerical imprecision
 const interval INDETERMINATE_INTERVAL = interval(2, -2);
 
+const std::pair<int, interval> NO_EWMA_MATCH = {-1, IMPOSSIBLE_INTERVAL};
+
 // Return a pair of (index into haystack, interval) giving the first match
 // for the needle half-clock sequence in haystack. If there is none, return
 // -1 and some interval that should be disregarded (currently
