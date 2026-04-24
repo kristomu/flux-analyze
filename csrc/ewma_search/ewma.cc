@@ -44,12 +44,14 @@ std::pair<double, double> ewma_margin (
 	size_t haystack_pos,
 	double alpha) {
 
-	double clock = initial_clock;
+	// Use greater precision internally than the provided parameters
+	// so we're less likely to get numerical precision problems.
+	long double clock = initial_clock;
 
 	bool possible_match = true;
 
-	double lower_divergence = std::numeric_limits<double>::infinity(),
-		upper_divergence = std::numeric_limits<double>::infinity();
+	long double lower_divergence = std::numeric_limits<long double>::infinity(),
+		upper_divergence = std::numeric_limits<long double>::infinity();
 
 	for (size_t j = 0; j < half_clock_needle.size() && possible_match; ++j) {
 
@@ -59,13 +61,13 @@ std::pair<double, double> ewma_margin (
 		// term inside the round() expression being half_clock_needle[j] + 0.5
 		// and half_clock_needle[j] - 0.5 respectively.
 
-		double lower_bound = (2.0 * haystack[haystack_pos+j])/(half_clock_needle[j] + 0.5);
-		double upper_bound = (2.0 * haystack[haystack_pos+j])/(half_clock_needle[j] - 0.5);
+		long double lower_bound = (2.0 * haystack[haystack_pos+j])/(half_clock_needle[j] + 0.5);
+		long double upper_bound = (2.0 * haystack[haystack_pos+j])/(half_clock_needle[j] - 0.5);
 
 		lower_divergence = std::min(lower_divergence, clock-lower_bound);
 		upper_divergence = std::min(upper_divergence, upper_bound - clock);
 		
-		double ideal_clock = (2.0 * haystack[haystack_pos+j]) / half_clock_needle[j];
+		long double ideal_clock = (2.0 * haystack[haystack_pos+j]) / half_clock_needle[j];
 
 		clock = (1-alpha) * clock + alpha * ideal_clock;
 	}
@@ -86,6 +88,19 @@ margin_dir ewma_margin_direction(double initial_clock,
 	if (margins.first > 0 && margins.second > 0) {
 		return VALID; // The given clock is a valid solution.
 	}
+
+	// If either margin is exactly zero, resolve by checking if
+	// the given initial clock is actually valid. (This should fix
+	// some numerical precision problems in extreme cases, but may
+	// also be overkill.)
+
+	if (margins.first >= 0 && margins.second >= 0
+		&& is_valid_ewma(initial_clock, haystack, half_clock_needle,
+			haystack_pos, alpha)) {
+
+		return VALID;
+	}
+
 	if (margins.first <= 0 && margins.second <= 0 ) {
 		return IMPOSSIBLE; // The clock proves that no solution exists.
 	}

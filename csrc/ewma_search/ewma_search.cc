@@ -45,10 +45,14 @@ interval get_boundary(
 
 	while (margin != VALID) {
 
-		mid = (low + high) / 2;
+		mid = low + (high - low) / 2.0;
 
 		margin = ewma_margin_direction(mid, haystack,
 			half_clock_needle, haystack_pos, alpha);
+
+		if (margin == VALID) {
+			continue;
+		}
 
 		if (margin == TOO_LOW) {
 			if (low == mid) {
@@ -81,7 +85,7 @@ interval get_boundary(
 
 	while (!numerical_error && fabs(valid_point - invalid_point) > tolerance) {
 
-		mid = (invalid_point + valid_point) / 2;
+		mid = invalid_point + (valid_point - invalid_point) / 2;
 
 		if (is_valid_ewma(mid, haystack, half_clock_needle,
 			haystack_pos, alpha)) {
@@ -111,7 +115,7 @@ interval get_boundary(
 
 	while (!numerical_error && fabs(valid_point - invalid_point) > tolerance) {
 
-		mid = (invalid_point + valid_point) / 2;
+		mid = valid_point + (invalid_point - valid_point) / 2;
 
 		if (is_valid_ewma(mid, haystack, half_clock_needle,
 			haystack_pos, alpha)) {
@@ -143,6 +147,7 @@ std::pair<int, interval> ewma_search(
 	double alpha, double tolerance) {
 
 	// If the needle is too long, we obviously can't have a match.
+	// TODO? Always match?
 	if (haystack_pos + half_clock_needle.size() > haystack.size()) {
 		return {-1, IMPOSSIBLE_INTERVAL};
 	}
@@ -172,7 +177,7 @@ std::pair<int, interval> ewma_search(
 
 	}
 
-	for (size_t i = haystack_pos; i < haystack.size() - half_clock_needle.size(); ++i) {
+	for (size_t i = haystack_pos; i < haystack.size() - half_clock_needle.size() + 1; ++i) {
 
 		interval current_interval;
 

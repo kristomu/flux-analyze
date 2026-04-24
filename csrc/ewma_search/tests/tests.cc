@@ -14,7 +14,21 @@
 
 const double test_tolerance = 1e-10;
 
+TEST(EWMASearch, SameSizeKnapsack) {
+
+	// Check for off-by-one when matching needles to haystacks
+	// of the same size.
+
+	std::vector<int> haystack = {4, 3};
+	std::vector<int> needle = haystack;
+	double alpha = 0;
+
+	EXPECT_EQ(ewma_search(haystack, needle, alpha, test_tolerance).first,
+		0);
+}
+
 TEST(EWMASearch, DivisionByZeroTest) {
+
 	// If needle is zero at any point, taking it at face value will lead
 	// to a divide by zero when calculating the ideal clock.
 
@@ -27,7 +41,8 @@ TEST(EWMASearch, DivisionByZeroTest) {
 }
 
 TEST(EWMASearch, LongerNeedleThanHaystack) {
-	// This caused a memory access error due to a bug. Fixed.
+	// This caused a memory access error due to a bug reading
+	// outside the haystack. Fixed.
 
 	std::vector<int> needle = std::vector<int>({1, 2, 3, 4});
 	std::vector<int> haystack = std::vector<int>({0});
@@ -101,14 +116,34 @@ TEST(EWMASearch, HandleSingleInterval) {
 		0);
 }
 
-TEST(EWMASearch, HandleSingleIntervalShort) {
+TEST(EWMASearch, HandleSingleIntervalSecond) {
 
-	// Since the match is with a two-size needle and starts at 0,
-	// it shouldn't matter if the haystack is also just two entries.
+	// Same, but with a different pattern.
 
 	std::vector<int> haystack = {21, 21};
 	std::vector<int> needle = {4, 3};
-	double alpha = -2.00089e-11;
+	double alpha = -8.3259e-16;
+
+	EXPECT_EQ(ewma_search(haystack, needle, alpha, test_tolerance).first,
+		0);
+}
+
+TEST(EWMASearch, HandleSingleIntervalMarginZero) {
+
+	// Handle a single interval case where the EWMA margin function
+	// returns zero on a valid solution even with long double.
+	// The bug is fixed by explicitly checking if a clock is
+	// valid when one of the bounds returned by the EWMA margin
+	// function is zero.
+
+	// I suspect that in an idealized mathematical world, any epsilon
+	// below zero would work in this example. But in the real world,
+	// we're limited by numerical precision. This is not a problem as
+	// long as the brute-force approach is similarly limited, though.
+
+	std::vector<int> haystack = {21, 21};
+	std::vector<int> needle = {4, 3};
+	double alpha = -1.2e-16;
 
 	EXPECT_EQ(ewma_search(haystack, needle, alpha, test_tolerance).first,
 		0);
